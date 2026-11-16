@@ -1,0 +1,8 @@
+{
+  "minTokens": 50,
+  "minLines": 4,
+  "format": ["javascript", "bash", "python", "sql"],
+  "ignore": ["**/node_modules/**", "**/fixtures/**", "**/*.d.ts"],
+  "reporters": ["json"],
+  "silent": true
+}
