@@ -184,7 +184,7 @@ Give the block more weight if you want the bars to stay when a window gets tight
 
   OpenCode's storage adapters live in `helpers/opencode/`: `legacy.sql` reads
   `session` / `message` / `part`, and `current.sql` reads `session_v2` / `session_message`.
-  `opencode-session.sh` detects available schemas, and `session.sql` applies one shared
+  `opencode-db.sh` detects available schemas, and `session.sql` applies one shared
   selection and counting policy. Empty migration tables do not override legacy messages;
   duplicate migrated session IDs are deduplicated, and distinct sessions remain ambiguous.
   The helper creates connection-local TEMP views in a read-only transaction and never
@@ -213,7 +213,7 @@ layouts away and back (`herdr-app do layout.switch '{"name":"main"}'`, then your
 [RECIPE.md](RECIPE.md) is the brief to build the mod from scratch. A new provider is
 one file in `providers/` plus its helper; `kind: "spend"` makes it count tokens instead
 of limits. A new agent for "This session" is a mode in `helpers/session.sh` and its
-Herdr name in `AGENTS` in `main.js`.
+Herdr name in `SESSION_MODE_BY_APP` in `io/helpers.js`.
 
 ## Credits
 

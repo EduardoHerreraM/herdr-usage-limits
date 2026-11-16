@@ -121,12 +121,26 @@ on the bar and in the panel. It never reads a token.
   `folded` lists folded providers; `spendOnBar` holds an explicit bar choice per
   spend provider. Every key is optional, so older prefs and presets read as before.
 - `mods/usage-limits/`:
-  - `main.js`: the only file using `gpui-kit`/`herdr`. `exec`, `shared`/`setShared` (`usage-limits.state`,
-    `usage-limits.prefs`, `usage-limits.refresh`),
-    `cx.timer.every(60 s)`, `HoverCard` from `gpui-base` for the panel (keep
-    `close_delay` at 300 ms or more: it's how the pointer reaches the panel).
-    `session.sh` runs with a 15 s `exec` timeout for OpenCode and Pi (Claude's
-    and Codex's call has none, as before); a timeout is "no session".
+  - `main.js`: the View, the one class. It keeps the state (panel, pointer,
+    focused terminal, session read, fetches in flight) and calls the host:
+    `shared`/`setShared` (`usage-limits.state`, `usage-limits.prefs`,
+    `usage-limits.refresh`), `cx.timer.every(60 s)`, `focused()`, `theme()`.
+    At most 12 methods, enforced by eslint.
+  - `actions.js`: what clicks and the pointer do (fold, toggles, refresh,
+    choose or drop a Codex session, hover). Toggles read the prefs at click
+    time, not the ones the panel was drawn with, so two clicks before a redraw
+    both count.
+  - `ui/`: drawing only, from data and actions: `bar.js` (the status bar and
+    the `HoverCard`; keep `close_delay` at 300 ms or more, it's how the pointer
+    reaches the panel), `card.js` (limit groups, folds, spend lines),
+    `panel.js` (the panel, the session block and picker), `settings.js`,
+    `kit.js` (colors, bars, icons). No `herdr` import.
+  - `io/`: `sh.js` runs a helper with `sh`, and on Windows, where Git puts
+    `git` on PATH but not its `sh`, with the `sh.exe` next to `git
+    --exec-path`, kept for later calls; a timeout is not retried.
+    `helpers.js` runs a provider's helper (spend helpers with a 15 s deadline,
+    as `pi-spend.sh` has none of its own) and `session.sh` (15 s; a timeout is
+    "no session").
   - `providers/claude.js`, `providers/codex.js`, `providers/opencode.js`,
     `providers/pi.js`: `{ id, name, icon, helper, parse(text, now) → Report }`;
     OpenCode and Pi add `kind: "spend"`, and their report has no windows and
@@ -136,11 +150,16 @@ on the bar and in the panel. It never reads a token.
     in order. A new provider is one more file there plus its helper.
   - `icons/`: the mod's own (`gauge`, `refresh`, `gear`, `back`,
     `chevron-down`, `chevron-right`); the agents' icons come from Herdr's.
-  - `lib/`: `report.js` (shapes), `format.js` (time, colors, pace),
-    `prefs.js` (opt-out lists, flags, panel, folds, spend on the bar),
-    `session.js` (session line and block), `state.js` (next provider state),
-    `view.js` (segments, panel and bar models, tightest window, the spend
-    default, what is fetched, density). Pure; tested with `node --test`.
+  - `lib/`: pure, tested with `node --test`: `report.js` (shapes below),
+    `format.js` (time, colors, pace), `prefs.js` (opt-out lists, flags, panel,
+    folds, spend on the bar), `session.js` (session line and block),
+    `session-binding.js` (an explicit Codex choice), `state.js` (next provider
+    state), `fetch-state.js` (what a helper's exit means), `settings.js` (the
+    settings rows), `view.js` (segments, panel and bar models, tightest
+    window, the spend default, what is fetched, density), `mod.js`.
+  - Layers, enforced by eslint: `lib/` and `providers/` import neither the
+    host nor `ui/`; `ui/` doesn't import `herdr`, `io/` or `actions.js`; `io/`
+    and `actions.js` don't draw.
   - `helpers/claude-usage.sh`: runs `claude -p --safe-mode
     --no-session-persistence --input-format stream-json --output-format
     stream-json --verbose`, sends `{"type":"control_request",…,"request":
@@ -173,8 +192,13 @@ on the bar and in the panel. It never reads a token.
     never one inside a tool call's arguments. Never runs `pi`. Exit 127 when
     `~/.pi/agent/sessions` doesn't exist, 1 when that folder can't be read; a
     folder or file inside it that can't be read is left out and the rest
-    counted. It has no deadline of its own: `main.js` runs every spend helper
-    with a 15 s `exec` timeout.
+    counted. It has no deadline of its own: `io/helpers.js` runs every spend
+    helper with a 15 s `exec` timeout.
+  - `helpers/awk/`: the awk programs the helpers run; `json-field.awk` (a
+    number after a key, and whether a key is one of a Pi message's own fields)
+    is shared by `pi-spend.sh` and `session.sh`.
+  - `helpers/opencode-db.sh session|spend`: reads `opencode.db` read-only
+    through whichever storage adapters its tables call for.
   - `helpers/session.sh claude|codex|opencode|pi <pid>`: one line of numbers,
     `tokens=N calls=N`, plus `compactions=N` (Claude, OpenCode), `window=N`
     (Codex), `model=<id>` (OpenCode, Pi; only if it matches
@@ -192,6 +216,42 @@ on the bar and in the panel. It never reads a token.
     `HERDR_USAGE_SQLITE_BIN` (instead of `sqlite3`).
 - Approach for Claude's `get_usage`: credit to
   [jmalicki/herdr-mod-ai-usage](https://github.com/jmalicki/herdr-mod-ai-usage) (MIT).
+
+## Shapes
+
+- Window: `{ id, short, long, percent (0–100), resetsAt (epoch s | null),
+  durationSec (s | null) }`.
+- Report: `{ status: "ok" | "unavailable" | "error", message, plan,
+  observedAt (epoch s), source, windows }`. A spend provider's ok report has
+  no windows and carries `spend: { today, week }` (token counts; week is the
+  last 7 days, today included). An error report may carry `fallback`, an
+  older dated reading (Codex's session log); it becomes `lastGood` only when
+  nothing fresher is known.
+- ProviderState: `{ report: Report | null, lastGood: Report | null,
+  installed: true | false | null }`; `report` is null when the CLI isn't
+  installed (`installed: false`) or before the first answer.
+- Session: `{ app, tokens, window | null, calls, compactions | null,
+  last: { trigger, pre, post } | null }`, plus `model: string | null` for
+  OpenCode and Pi, whose block names the agent and its model. `compactions`
+  is null where the agent's log isn't known to record them, which is not 0.
+- Prefs: as in the presets above, plus `showBars` (each limit has its bar
+  when there's room; off, numbers only). Limits are opt-out lists, so anything
+  new shows by itself; session numbers on the bar are opt-in. `showResetTime`:
+  every window shows its time to reset, not only amber and red ones.
+
+## Code
+
+- No comments in code: a name, a constant, a small function, an assert
+  message or a test says it; reasons that are about the platform live here.
+- JavaScript is functions; the one class is the View Herdr requires.
+- `npm test` runs the mod's tests, then the quality gate in `test/quality/`:
+  eslint (size and complexity limits, no classes or `this` outside the View,
+  the layers), jscpd (no copied code), shellcheck (POSIX `sh`), no comments
+  in JS, shell, Python, SQL or awk, file sizes. `npm install` first.
+- `mods/usage-limits/test/main.test.js` runs the real `main.js` over host
+  stand-ins and compares what it draws and does, click by click, with
+  `test/fixtures/main-snapshot.json`; `UPDATE_SNAPSHOT=1` rewrites it after a
+  change meant to show.
 
 ## What it runs and reads
 
@@ -293,8 +353,41 @@ on the bar and in the panel. It never reads a token.
   (`13:59:59.6`): round to the minute, or the panel says 13:59.
 - `sh missing.sh` exits 127 too; a test for "CLI not found" must also check
   the helper itself ran.
-- Keep the stdin of `claude`/`codex` open through a FIFO and kill the CLI
-  after the reply; a `sleep` holding a pipe makes every call last the sleep.
+- Keep the CLI's input there until the reply and kill the CLI after it; a
+  `sleep` holding a pipe makes every call last the sleep. Not through a FIFO:
+  on Windows (Git sh) a native `claude.exe` never answers through `mkfifo`, and
+  a FIFO reaches `codex` empty. Claude reads the request from a regular file
+  (it answers a control request read before end of input, and `$!` stays the
+  CLI's own pid in every `sh`, so the kill reaches it). Codex reads from a
+  pipe held open until the answer is out (at most 15 s): `app-server` quits at
+  end of input without answering, and once it has answered, end of input lets
+  it exit by itself (2 s grace). The writer holds none of the helper's output,
+  so it can't keep a caller waiting.
+- Deadlines are a clock, not a count of rounds: Git Bash forks slowly, and 75
+  rounds of 0.2 s ran to 20 s there.
+- On Windows, Git sh's `$HOME` can be a network drive while Claude Code keeps
+  its files under `%USERPROFILE%`: that wins when it has a `.claude` folder.
+- Codex not installed is 127 even if old session logs exist, which would look
+  like a reading. A logged snapshot is never a live reading: the provider is
+  failing, and the snapshot is a dated candidate for "last good" only.
+- Codex's session (`codex-session.py`): embedded servers live in the TUI
+  itself, older versions used a child server, so both are looked up; the
+  SQLite row of a thread can lag behind its rollout file; a last line still
+  being written is skipped; some legacy logs emit `context_compacted` for the
+  same record as `compacted`; top-level sources such as `cli` and `vscode`
+  are plain strings, not JSON.
+- `pi-spend.sh`: `find "$dir/"` with the trailing `/` enters the folder when
+  it is a symlink; `find`'s own status is not used (one folder it can't enter
+  would lose them all); only readable files reach `awk`, which stops at the
+  first it can't open. ISO timestamps in UTC sort as text.
+- Session files hold the conversation, JSON-escaped, so `\"role\"` in a text
+  can't match the `"role"` a helper looks for.
+- OpenCode's spend prefers the database to the CLI: a desktop app's PATH may
+  not find an NVM-installed `opencode`. The temp views exist only in that
+  read-only connection, and one transaction reads both stores from one
+  snapshot. Spending counts paid compaction requests and subagents, unlike the
+  session's context. `--days 7` is today and the six days before (its
+  `range.from` on 2.2.5 is local midnight six days back).
 - Herdr starts programs with your login environment; the CLIs must be on
   that PATH (or use the env overrides).
 - Herdr doesn't hot-reload a mod folder that is a symlink; switch layouts
