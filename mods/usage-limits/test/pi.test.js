@@ -15,15 +15,14 @@ test("descriptor", () => {
   );
 });
 
-test("today since local midnight, week since local midnight six days before", () => {
-  // Local times, so this holds in any time zone.
+test("today since local midnight, week since local midnight six days before, in any time zone", () => {
   const now = new Date(2026, 10, 12, 12);
-  const text = [
+  const text = `${[
     line(new Date(2026, 10, 12, 0, 30), 100),
     line(new Date(2026, 10, 11, 23, 30), 20),
     line(new Date(2026, 10, 6, 12), 3),
     line(new Date(2026, 10, 5, 12), 4000),
-  ].join("\n") + "\n";
+  ].join("\n")  }\n`;
   const r = pi.parse(text, sec(now));
   assert.equal(r.status, "ok");
   assert.deepEqual(r.spend, { today: 100, week: 123 });
@@ -45,8 +44,7 @@ test("no replies → ok with zeros", () => {
 
 test("malformed lines are skipped", () => {
   const text = readFileSync(join(HERE, "fixtures", "pi-spend.txt"), "utf8");
-  // 12:20 UTC: the 12:19 line is today in every zone, 11-10 08:00 is never today, 11-01 is never in the week.
   const r = pi.parse(text, Date.UTC(2026, 10, 12, 12, 20) / 1000);
   assert.equal(r.status, "ok");
-  assert.deepEqual(r.spend, { today: 1200, week: 4200 });
+  assert.deepEqual(r.spend, { today: 1200, week: 4200 }, "at 12:20 UTC the 12:19 line is today in every zone, 11-10 08:00 never is, 11-01 is outside the week");
 });

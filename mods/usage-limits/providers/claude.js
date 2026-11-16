@@ -1,5 +1,3 @@
-// Claude Code: the CLI's own `get_usage` control request (helpers/claude-usage.sh).
-// The CLI authenticates itself; nothing here sees a token.
 import { makeWindow, okReport, errorReport, unavailableReport, toEpoch, jsonLines } from "../lib/report.js";
 
 const SOURCE = "claude CLI";

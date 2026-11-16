@@ -1,9 +1,16 @@
 process.env.TZ = "UTC";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { segmentView } from "../lib/view.js";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { barModel, cardModel, chooseDensity, hasLimits, limitsSettled, panelOnEnter, segmentView, tightest, wanted } from "../lib/view.js";
+import { okReport, errorReport, unavailableReport, spendReport, makeWindow } from "../lib/report.js";
+import { effectivePrefs as livePrefs } from "../lib/prefs.js";
 import claude from "../providers/claude.js";
-import { read } from "./_util.js";
+import codex from "../providers/codex.js";
+import { PROVIDERS } from "../providers/index.js";
+import { HERE } from "./_util.js";
+import { BAR_PREFS, DENSITY_WIDTHS, extraScenarios, scenarios, NOW as SNAP_NOW } from "./_view-scenarios.js";
 
 const NOW = Date.UTC(2026, 10, 4, 8, 0, 0) / 1000;
 const W = (o) => ({ id: "x", short: "wk", long: "Weekly", percent: 50, resetsAt: NOW + 58 * 3600, durationSec: 604800, ...o });
@@ -37,16 +44,8 @@ test("fill is clamped to 0–1", () => {
   assert.equal(segmentView(W({ percent: 130 }), NOW).fill, 1);
 });
 
-// ---- barModel / chooseDensity (Task 4) ----
-import { barModel, cardModel, chooseDensity, panelOnEnter } from "../lib/view.js";
-import codex from "../providers/codex.js";
-
 const PREFS = { hidden: [], hiddenWindows: [] };
-const ok = (p, file, at = NOW) => ({ ...p.parse(read(file), at), observedAt: at });
-const STATES = () => ({
-  claude: { report: ok(claude, "claude-get-usage.max.json"), lastGood: ok(claude, "claude-get-usage.max.json"), installed: true },
-  codex: { report: ok(codex, "codex-app-server.plus.json"), lastGood: ok(codex, "codex-app-server.plus.json"), installed: true },
-});
+const STATES = scenarios.fresh;
 
 test("barModel: both providers, all windows, in registry order", () => {
   const m = barModel(STATES(), PREFS, NOW);
@@ -104,8 +103,6 @@ test("chooseDensity: full at 600px, no bars at 400px, percents only at 140px", (
   assert.equal(chooseDensity(m, 140), 3);
 });
 
-// ---- reset time always on ----
-
 test("chooseDensity: with bars off it never picks the bars, and still narrows", () => {
   const m = barModel(STATES(), PREFS, NOW);
   assert.equal(chooseDensity(m, 600, false), 1);
@@ -143,8 +140,6 @@ test("chooseDensity: times of calm windows go last, so providers still fit", () 
   assert.equal(chooseDensity(on, 300), 3);
 });
 
-// ---- hover card ----
-
 test("cardModel: a provider's plan, age and one row per window", () => {
   const s = STATES();
   s.claude.report = { ...s.claude.report, observedAt: NOW - 60 };
@@ -168,10 +163,10 @@ const hintFor = (w) => {
 };
 
 test("cardModel: a row's hint explains its tick with its own numbers", () => {
-  const left = { resetsAt: NOW + 58 * 3600 }; // 65% of a week gone
-  assert.equal(hintFor({ percent: 70, ...left }), "Tick: 65% of the time has passed.\nYou've used 70%, so you're on pace.");
-  assert.equal(hintFor({ percent: 92, ...left }), "Tick: 65% of the time has passed.\nYou've used 92%, so you're using it up too fast.");
-  assert.equal(hintFor({ percent: 20, ...left }), "Tick: 65% of the time has passed.\nYou've used 20%, so you have room to spare.");
+  const sixtyFivePercentOfWeekGone = { resetsAt: NOW + 58 * 3600 };
+  assert.equal(hintFor({ percent: 70, ...sixtyFivePercentOfWeekGone }), "Tick: 65% of the time has passed.\nYou've used 70%, so you're on pace.");
+  assert.equal(hintFor({ percent: 92, ...sixtyFivePercentOfWeekGone }), "Tick: 65% of the time has passed.\nYou've used 92%, so you're using it up too fast.");
+  assert.equal(hintFor({ percent: 20, ...sixtyFivePercentOfWeekGone }), "Tick: 65% of the time has passed.\nYou've used 20%, so you have room to spare.");
 });
 
 test("cardModel: no tick, no hint", () => {
@@ -231,8 +226,6 @@ test("cardModel: a reading older than 15 min is dimmed", () => {
   assert.equal(g.status, "updated 15 min ago");
 });
 
-// ---- which side of the panel shows ----
-
 test("panelOnEnter: settings stay while the pointer only crosses the gap", () => {
   assert.equal(panelOnEnter("settings", 1000, 1200, 300), "settings");
 });
@@ -248,15 +241,6 @@ test("panelOnEnter: settings stay if the pointer never left", () => {
 test("panelOnEnter: limits stay limits", () => {
   assert.equal(panelOnEnter("limits", 1000, 9000, 300), "limits");
 });
-
-// ---- spend, folds and panel visibility ----
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { tightest, hasLimits, limitsSettled, wanted } from "../lib/view.js";
-import { okReport, errorReport, unavailableReport, spendReport, makeWindow } from "../lib/report.js";
-import { PROVIDERS } from "../providers/index.js";
-import { scenarios, NOW as SNAP_NOW } from "./_view-scenarios.js";
-import { HERE } from "./_util.js";
 
 const OC = { id: "opencode", name: "OpenCode", icon: "i", kind: "spend" };
 const WITH_SPEND = [claude, codex, OC];
@@ -313,10 +297,9 @@ test("card: a folded group carries its tightest row as summary and keeps its row
   assert.deepEqual(g.summary, g.rows[1]);
   const open = cardModel(s, NOW, [claude]).groups[0];
   assert.deepEqual([open.folded, open.summary.id], [false, "wk"], "an open group has its summary too");
-  // failing: the summary comes from the last good reading, like the rows
   s.claude.report = errorReport("x", "offline", NOW);
   const f = cardModel(s, NOW, [claude], { ...DEFAULTS, folded: ["claude"] }).groups[0];
-  assert.deepEqual([f.failed, f.dim, f.summary.percent], [true, true, "91%"]);
+  assert.deepEqual([f.failed, f.dim, f.summary.percent], [true, true, "91%"], "failing: the summary comes from the last good reading, like the rows");
   assert.equal(cardModel({ claude: { ...s.claude, lastGood: null } }, NOW, [claude]).groups[0].summary, null);
 });
 
@@ -333,17 +316,13 @@ test("card: spend group has today/week strings and no rows; zero week is absent;
   assert.deepEqual([g.kind, g.name, g.today, g.week, g.rows, g.folded, g.summary, g.failed, g.dim, g.status], ["spend", "OpenCode", "240k", "1.9M", [], false, null, false, false, "updated just now"]);
   assert.equal(cardModel({ opencode: spend(0, 0) }, NOW, [OC]).empty, true);
   assert.equal(cardModel({ opencode: spend(0, 12) }, NOW, [OC]).groups[0].today, "0");
-  // stale
-  assert.equal(cardModel({ opencode: spend(5, 12, NOW - 901) }, NOW, [OC]).groups[0].dim, true);
-  // failing with a last good reading: its numbers, dimmed, with the reason
+  assert.equal(cardModel({ opencode: spend(5, 12, NOW - 901) }, NOW, [OC]).groups[0].dim, true, "stale");
   const failing = { ...spend(800, 9000, NOW - 1200), report: errorReport("y", "database is locked", NOW) };
   const f = cardModel({ opencode: failing }, NOW, [OC]).groups[0];
-  assert.deepEqual([f.status, f.failed, f.dim, f.age, f.today, f.week], ["database is locked", true, true, "Last reading 20 min ago", "800", "9k"]);
-  // failing with nothing known: the reason, no numbers
+  assert.deepEqual([f.status, f.failed, f.dim, f.age, f.today, f.week], ["database is locked", true, true, "Last reading 20 min ago", "800", "9k"], "failing with a last good reading: its numbers, dimmed, with the reason");
   const n = cardModel({ opencode: { report: errorReport("y", "timed out", NOW), lastGood: null, installed: true } }, NOW, [OC]).groups[0];
-  assert.deepEqual([n.status, n.failed, n.today, n.week], ["timed out", true, null, null]);
-  // not installed
-  assert.equal(cardModel({ opencode: GONE }, NOW, [OC]).empty, true);
+  assert.deepEqual([n.status, n.failed, n.today, n.week], ["timed out", true, null, null], "failing with nothing known: the reason, no numbers");
+  assert.equal(cardModel({ opencode: GONE }, NOW, [OC]).empty, true, "not installed");
 });
 
 test("card: arrows only from three groups", () => {
@@ -390,9 +369,8 @@ test("bar: Claude offline after a good reading still counts as limits", () => {
   s.claude.report = errorReport("claude CLI", "offline", NOW);
   assert.equal(hasLimits(s, WITH_SPEND), true);
   assert.deepEqual(spendOn(s), []);
-  // a reading kept from before the CLI went away does not count
   const gone = { ...s, claude: { ...s.claude, report: null, installed: false } };
-  assert.equal(hasLimits(gone, WITH_SPEND), false);
+  assert.equal(hasLimits(gone, WITH_SPEND), false, "a reading kept from before the CLI went away does not count");
   assert.equal(spendOn(gone).length, 1);
 });
 
@@ -400,18 +378,15 @@ test("bar: spend stays off until every wanted limits provider has answered once"
   const s = { claude: NONE, codex: GONE, opencode: spend(1500, 9000) };
   assert.equal(limitsSettled(s, DEFAULTS, WITH_SPEND), false);
   assert.deepEqual(spendOn(s), []);
-  // Claude answers with nothing to show: now spend goes on the bar
   s.claude = { report: unavailableReport("claude CLI", "No subscription limits", NOW), lastGood: null, installed: true };
-  assert.equal(limitsSettled(s, DEFAULTS, WITH_SPEND), true);
+  assert.equal(limitsSettled(s, DEFAULTS, WITH_SPEND), true, "Claude answers with nothing to show: now spend goes on the bar");
   assert.equal(spendOn(s).length, 1);
-  // a limits provider in neither bar nor panel is not fetched and is not waited for
   const unwanted = { claude: NONE, codex: GONE, opencode: spend(1500, 9000) };
   const prefs = { ...DEFAULTS, hidden: ["claude"], panelHidden: ["claude"] };
-  assert.equal(limitsSettled(unwanted, prefs, WITH_SPEND), true);
+  assert.equal(limitsSettled(unwanted, prefs, WITH_SPEND), true, "a limits provider in neither bar nor panel is not fetched and is not waited for");
   assert.equal(spendOn(unwanted, prefs).length, 1);
-  // but one with a known reading still counts as limits
   const known = { ...unwanted, claude: { ...lim([win("5h", 30, NOW + 3600)]), report: null } };
-  assert.equal(hasLimits(known, WITH_SPEND), true);
+  assert.equal(hasLimits(known, WITH_SPEND), true, "but one with a known reading still counts as limits");
   assert.deepEqual(spendOn(known, prefs), []);
 });
 
@@ -422,8 +397,7 @@ test("bar: an explicit spend choice wins both ways", () => {
   assert.deepEqual(spendOn(alone, { ...DEFAULTS, spendOnBar: { opencode: false } }), []);
   const unsettled = { claude: NONE, codex: GONE, opencode: spend(1500, 9000) };
   assert.equal(spendOn(unsettled, { ...DEFAULTS, spendOnBar: { opencode: true } }).length, 1, "an explicit on does not wait");
-  // the legacy bar list does not apply to spend
-  assert.equal(spendOn(alone, { ...DEFAULTS, hidden: ["opencode"] }).length, 1);
+  assert.equal(spendOn(alone, { ...DEFAULTS, hidden: ["opencode"] }).length, 1, "the legacy bar list does not apply to spend");
 });
 
 test("wanted: on the bar or in the panel; in neither → false; spend follows its effective bar state", () => {
@@ -444,18 +418,13 @@ test("density: a spend group takes room", () => {
   const limitsOnly = barModel({ claude: lim([win("5h", 30, NOW + 3600)]) }, DEFAULTS, NOW, [claude]);
   const both = barModel({ claude: lim([win("5h", 30, NOW + 3600)]), opencode: spend(240000, 1_000_000) }, { ...DEFAULTS, spendOnBar: { opencode: true } }, NOW, [claude, OC]);
   assert.equal(both.groups.length, 2);
-  // limits alone fit with bars at 120px; with the spend group they no longer do
-  assert.equal(chooseDensity(limitsOnly, 120), 0);
+  assert.equal(chooseDensity(limitsOnly, 120), 0, "limits alone fit with bars at 120px; with the spend group they no longer do");
   assert.ok(chooseDensity(both, 120) > 0);
   assert.equal(chooseDensity(both, 400), 0);
   const spendAlone = barModel({ opencode: spend(240000, 1_000_000) }, { ...DEFAULTS, spendOnBar: { opencode: true } }, NOW, [OC]);
   assert.equal(chooseDensity(spendAlone, 60), 3, "nothing to drop: it stays at the narrowest");
   assert.equal(chooseDensity(spendAlone, 200), 0);
 });
-
-// ---- the first rule, guarded further ----
-import { extraScenarios, BAR_PREFS, DENSITY_WIDTHS } from "./_view-scenarios.js";
-import { effectivePrefs as livePrefs } from "../lib/prefs.js";
 
 test("card: a Claude + Codex panel shows no arrow, whichever providers are listed", () => {
   for (const [name, mk] of Object.entries({ ...scenarios, ...extraScenarios })) {

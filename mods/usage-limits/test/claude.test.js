@@ -65,6 +65,6 @@ test("garbage text → status error", () => {
 });
 
 test("finds control_response among other lines", () => {
-  const text = 'Welcome\n{"type":"system","subtype":"init"}\n' + read("claude-get-usage.max.json") + "\n";
+  const text = `Welcome\n{"type":"system","subtype":"init"}\n${  read("claude-get-usage.max.json")  }\n`;
   assert.equal(claude.parse(text, NOW).windows.length, 3);
 });

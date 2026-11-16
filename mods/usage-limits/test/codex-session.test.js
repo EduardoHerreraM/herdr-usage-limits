@@ -17,7 +17,7 @@ function setup(records, { owner = 123, lock = false } = {}) {
   const bin = join(home, "bin");
   mkdirSync(day, { recursive: true }); mkdirSync(bin);
   const file = join(day, `rollout-demo-${ID}.jsonl`);
-  writeFileSync(file, records.map(JSON.stringify).join("\n") + "\n");
+  writeFileSync(file, `${records.map(JSON.stringify).join("\n")  }\n`);
   const paths = lock ? [join(home, "thread-writer-locks", `${ID}.lock`)] : [file];
   writeFileSync(join(bin, "lsof"), `#!/bin/sh\nif [ "$4" = cwd ] && [ "$7" = -Fn ]; then printf 'p123\\nn/demo/project\\n'; exit; fi\n[ "$4" = ${owner} ] || exit 1\nprintf '%s\\n' ${paths.map((p) => `'n${p}'`).join(" ")}\n`, { mode: 0o755 });
   writeFileSync(join(bin, "pgrep"), '#!/bin/sh\necho 456\n', { mode: 0o755 });
@@ -98,7 +98,7 @@ test("Codex daemon: asks lsof for machine-readable cwd fields", () => {
 test("Codex: ambiguous open files offer a choice instead of following another conversation's writes", () => {
   const h = setup([usage(333)]); index(h);
   const other = join(h.home, "sessions", `rollout-other-${OTHER}.jsonl`);
-  writeFileSync(other, JSON.stringify(usage(999)) + "\n");
+  writeFileSync(other, `${JSON.stringify(usage(999))  }\n`);
   writeFileSync(join(h.home, "bin", "lsof"), `#!/bin/sh\n[ "$4" = 123 ] || exit 1\nprintf '%s\\n' 'n${h.file}' 'n${other}'\n`, { mode: 0o755 });
   assert.equal(run(h).status, 2);
   assert.equal(run(h, ID, h.env.HERDR_USAGE_PROC_IDENTITY).stdout, "tokens=333 window=475000 calls=0 compactions=0\n");
@@ -109,7 +109,7 @@ test("Codex: a new writer-lock with no published rollout cannot fall back to a p
   const r = spawnSync("python3", ["-I", "-c", "import sqlite3,sys;c=sqlite3.connect(sys.argv[1]);c.execute('UPDATE threads SET id=?',(sys.argv[2],));c.commit()", join(h.home, "state_5.sqlite"), OTHER], { encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
   const other = join(h.home, "sessions", `rollout-old-${OTHER}.jsonl`);
-  writeFileSync(other, JSON.stringify(usage(999)) + "\n");
+  writeFileSync(other, `${JSON.stringify(usage(999))  }\n`);
   const update = spawnSync("python3", ["-I", "-c", "import sqlite3,sys;c=sqlite3.connect(sys.argv[1]);c.execute('UPDATE threads SET rollout_path=?',(sys.argv[2],));c.commit()", join(h.home, "state_5.sqlite"), other], { encoding: "utf8" });
   assert.equal(update.status, 0, update.stderr);
   const result = run(h, OTHER, h.env.HERDR_USAGE_PROC_IDENTITY);

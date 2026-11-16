@@ -7,8 +7,8 @@ import { tmpdir } from "node:os";
 import { MOD } from "./_util.js";
 
 const today = new Date(); today.setHours(0, 0, 0, 0);
-const before = new Date(today); before.setDate(before.getDate() - 6);
-const t = today.getTime(); const week = before.getTime();
+const weekStart = new Date(today); weekStart.setDate(weekStart.getDate() - 6);
+const t = today.getTime(); const week = weekStart.getTime();
 const q = (v) => `'${String(v).replaceAll("'", "''")}'`;
 function fixture(storage, { empty = false, both = false } = {}) {
   const home = mkdtempSync(join(tmpdir(), "opencode-spend-db-"));
@@ -19,10 +19,10 @@ function fixture(storage, { empty = false, both = false } = {}) {
     const messages = format === "v1" ? "message" : "session_message";
     statements.push(`create table ${sessions}(id text, time_updated integer); create table ${messages}(id text, session_id text, time_created integer, data text${format === "v2" ? ",type text" : ""});`);
     statements.push(`insert into ${sessions} values ('own',${t + (format === "v2" ? 1 : 0)});`);
-    if (!empty) for (const [i, at, input] of [[0, week - 1, 9000], [1, week, 100], [2, t, format === "v2" && both ? 300 : 200], [3, t + 86400000, 9999]]) {
+    if (!empty) {for (const [i, at, input] of [[0, week - 1, 9000], [1, week, 100], [2, t, format === "v2" && both ? 300 : 200], [3, t + 86400000, 9999]]) {
       const data = { role: "assistant", tokens: { input, output: 10, reasoning: 5, cache: { read: 20, write: 2 } } };
       statements.push(`insert into ${messages} values ('m${i}','own',${at},${q(JSON.stringify(data))}${format === "v2" ? ",'assistant'" : ""});`);
-    }
+    }}
   }
   const r = spawnSync("sqlite3", [db], { input: statements.join("\n"), encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);

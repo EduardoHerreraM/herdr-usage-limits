@@ -1,44 +1,52 @@
-// What the bar and its hover card show, as plain data. Pure: no Herdr imports.
 import { timeLeft, level, pace, ago, tokens } from "./format.js";
 import { isShown, inPanel, isFolded, spendOnBar, effectivePrefs } from "./prefs.js";
 import { PROVIDERS } from "../providers/index.js";
 
-const STALE_AFTER = 15 * 60; // s
+const STALE_AFTER_S = 15 * 60;
+const NO_READING = "—";
+const FAILED_MARK = "!";
+const LOADING_MARK = "…";
 
-// text is the full reading; brief is what's left when the bar runs out of room:
-// an amber or red window keeps its time, a calm one gives it up.
+export const DENSITY = { FULL: 0, NO_BARS: 1, NO_LABELS: 2, BRIEF: 3 };
+
+const fillOf = (percent) => Math.min(1, Math.max(0, percent / 100));
+const passed = (w, now) => w.resetsAt != null && w.resetsAt <= now;
+const isSpend = (p) => p.kind === "spend";
+const usedThisWeek = (reading) => reading?.spend?.week > 0;
+const isStale = (reading, now) => now - reading.observedAt > STALE_AFTER_S;
+const shownReading = (st) => (st?.report?.status === "ok" ? st.report : st?.lastGood ?? null);
+
 export function segmentView(w, now, showResetTime = false) {
-  if (w.resetsAt != null && w.resetsAt <= now) {
-    return { id: w.id, short: w.short, text: "—", brief: "—", level: "ok", fill: 0, tick: null, expired: true };
+  if (passed(w, now)) {
+    return { id: w.id, short: w.short, text: NO_READING, brief: NO_READING, level: "ok", fill: 0, tick: null, expired: true };
   }
   const lv = level(w.percent);
-  const left = w.resetsAt != null ? ` · ${timeLeft(w.resetsAt - now)}` : "";
-  const brief = `${w.percent}%${lv !== "ok" ? left : ""}`;
+  const timeToReset = w.resetsAt != null ? ` · ${timeLeft(w.resetsAt - now)}` : "";
+  const brief = `${w.percent}%${lv !== "ok" ? timeToReset : ""}`;
   return {
     id: w.id,
     short: w.short,
-    text: showResetTime ? `${w.percent}%${left}` : brief,
+    text: showResetTime ? `${w.percent}%${timeToReset}` : brief,
     brief,
     level: lv,
-    fill: Math.min(1, Math.max(0, w.percent / 100)),
+    fill: fillOf(w.percent),
     tick: pace(w, now)?.elapsed ?? null,
     expired: false,
   };
 }
 
-const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const capitalized = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const VERDICT = { "on pace": "you're on pace", ahead: "you're using it up too fast", under: "you have room to spare" };
 
-// What the tick means, in this limit's own numbers. No tick, nothing to explain.
 function tickHint(percent, p) {
   if (!p) return null;
   return `Tick: ${Math.round(p.elapsed * 100)}% of the time has passed.\nYou've used ${percent}%, so ${VERDICT[p.verdict]}.`;
 }
 
 function cardRow(w, now) {
-  if (w.resetsAt != null && w.resetsAt <= now) {
-    return { id: w.id, long: w.long, percent: "—", level: "ok", fill: 0, tick: null, hint: null, left: "", detail: "reset, waiting for a new reading" };
+  if (passed(w, now)) {
+    return { id: w.id, long: w.long, percent: NO_READING, level: "ok", fill: 0, tick: null, hint: null, left: "", detail: "reset, waiting for a new reading" };
   }
   const p = pace(w, now);
   return {
@@ -46,7 +54,7 @@ function cardRow(w, now) {
     long: w.long,
     percent: `${w.percent}%`,
     level: level(w.percent),
-    fill: Math.min(1, Math.max(0, w.percent / 100)),
+    fill: fillOf(w.percent),
     tick: p?.elapsed ?? null,
     hint: tickHint(w.percent, p),
     left: w.resetsAt != null ? timeLeft(w.resetsAt - now) : "",
@@ -54,162 +62,161 @@ function cardRow(w, now) {
   };
 }
 
-const isSpend = (p) => p.kind === "spend";
-const passed = (w, now) => w.resetsAt != null && w.resetsAt <= now;
+const resetOrLater = (w) => w.resetsAt ?? Infinity;
 
-// The window closest to running out: highest percent, ties to the sooner reset (an unknown
-// reset counts as later). A window whose reset has passed loses unless it's the only one.
+function closerToRunningOut(w, best, now) {
+  if (passed(w, now) !== passed(best, now)) return passed(best, now);
+  return w.percent > best.percent || (w.percent === best.percent && resetOrLater(w) < resetOrLater(best));
+}
+
 export function tightest(windows, now) {
-  let best = null;
-  for (const w of windows ?? []) {
-    if (!best) { best = w; continue; }
-    if (passed(w, now) !== passed(best, now)) {
-      if (passed(best, now)) best = w;
-      continue;
-    }
-    const r = (x) => x.resetsAt ?? Infinity;
-    if (w.percent > best.percent || (w.percent === best.percent && r(w) < r(best))) best = w;
-  }
-  return best;
+  return (windows ?? []).reduce((best, w) => (best == null || closerToRunningOut(w, best, now) ? w : best), null);
 }
 
-// The reading to show: the current one when ok, else the last good one.
-const shown = (st) => (st?.report?.status === "ok" ? st.report : st?.lastGood ?? null);
-
-// "A provider with limits is installed": some limits provider has a reading with a window,
-// its current one or, failing that, its last good one. One that's no longer installed doesn't count.
 export function hasLimits(states, providers = PROVIDERS) {
-  return providers.some((p) => !isSpend(p) && states[p.id]?.installed !== false && (shown(states[p.id])?.windows.length ?? 0) > 0);
+  return providers.some((p) => !isSpend(p) && states[p.id]?.installed !== false && (shownReading(states[p.id])?.windows.length ?? 0) > 0);
 }
 
-// Every limits provider being fetched, and not known to be missing, has answered once.
 export function limitsSettled(states, prefs, providers = PROVIDERS) {
   return providers.every((p) => isSpend(p) || !wanted(prefs, p, states, providers) || states[p.id]?.installed === false || states[p.id]?.report != null);
 }
 
 const spendDefault = (states, prefs, providers) => limitsSettled(states, prefs, providers) && !hasLimits(states, providers);
 
-// On the bar or in the panel: the provider is fetched.
 export function wanted(prefs, p, states, providers = PROVIDERS) {
   if (inPanel(prefs, p.id)) return true;
   return isSpend(p) ? spendOnBar(prefs, p.id, spendDefault(states, prefs, providers)) : isShown(prefs, p.id);
 }
 
-// A spend provider's panel line: its numbers, from the last good reading when failing.
-function spendGroup(p, st, now) {
-  const { report = null, lastGood = null } = st ?? {};
-  if (!report) return null; // nothing known yet: no line rather than an empty one
-  const source = shown(st);
-  if (source && !(source.spend?.week > 0)) return null; // installed, unused
-  const g = { providerId: p.id, name: p.name, icon: p.icon, kind: "spend", plan: null, status: "", failed: false, dim: false, age: null, rows: [], folded: false, summary: null, today: null, week: null };
-  if (report.status === "ok") {
-    g.status = `updated ${ago(report.observedAt, now)}`;
-    g.dim = now - report.observedAt > STALE_AFTER;
-  } else {
-    g.status = report.message ?? report.status;
-    g.failed = true;
-    g.dim = true;
-    g.age = lastGood ? `Last reading ${ago(lastGood.observedAt, now)}` : null;
-  }
-  if (source) {
-    g.today = tokens(source.spend.today);
-    g.week = tokens(source.spend.week);
-  }
-  return g;
+function readingStatus(report, lastGood, now) {
+  if (report.status === "ok") return { status: `updated ${ago(report.observedAt, now)}`, failed: false, dim: isStale(report, now), age: null };
+  return {
+    status: report.message ?? report.status,
+    failed: true,
+    dim: true,
+    age: lastGood ? `Last reading ${ago(lastGood.observedAt, now)}` : null,
+  };
 }
 
-// The hover panel: everything known, less what was taken out of the panel.
-// What's hidden from the bar still shows here.
+function spendGroup(p, st, now) {
+  const { report = null, lastGood = null } = st ?? {};
+  if (!report) return null;
+  const source = shownReading(st);
+  if (source && !usedThisWeek(source)) return null;
+  return {
+    providerId: p.id, name: p.name, icon: p.icon, kind: "spend", plan: null, rows: [], folded: false, summary: null,
+    ...readingStatus(report, lastGood, now),
+    today: source ? tokens(source.spend.today) : null,
+    week: source ? tokens(source.spend.week) : null,
+  };
+}
+
+const LOADING = { status: "loading…", failed: false, dim: false, age: null };
+
+function limitsGroup(p, st, now, prefs) {
+  const { report = null, lastGood = null } = st ?? {};
+  const windows = (report?.status === "ok" ? report.windows : lastGood?.windows) ?? [];
+  const closest = tightest(windows, now);
+  return {
+    providerId: p.id, name: p.name, icon: p.icon,
+    plan: report?.status === "ok" && report.plan ? capitalized(report.plan) : null,
+    ...(report ? readingStatus(report, lastGood, now) : LOADING),
+    rows: report ? windows.map((w) => cardRow(w, now)) : [],
+    kind: "limits",
+    folded: isFolded(prefs, p.id),
+    summary: report && closest ? cardRow(closest, now) : null,
+  };
+}
+
+function panelGroup(p, st, now, prefs) {
+  if (!inPanel(prefs, p.id) || st?.installed === false) return null;
+  return isSpend(p) ? spendGroup(p, st, now) : limitsGroup(p, st, now, prefs);
+}
+
 export function cardModel(states, now, providers = PROVIDERS, prefs = effectivePrefs()) {
-  const groups = [];
-  for (const p of providers) {
-    if (!inPanel(prefs, p.id)) continue;
-    const { report = null, lastGood = null, installed = null } = states[p.id] ?? {};
-    if (installed === false) continue;
-    if (isSpend(p)) {
-      const g = spendGroup(p, states[p.id], now);
-      if (g) groups.push(g);
-      continue;
-    }
-    const g = { providerId: p.id, name: p.name, icon: p.icon, plan: null, status: "loading…", failed: false, dim: false, age: null, rows: [] };
-    let windows = [];
-    if (report?.status === "ok") {
-      g.plan = report.plan ? cap(report.plan) : null;
-      g.status = `updated ${ago(report.observedAt, now)}`;
-      g.dim = now - report.observedAt > STALE_AFTER;
-      windows = report.windows;
-    } else if (report) {
-      g.status = report.message ?? report.status;
-      g.failed = true;
-      g.dim = true;
-      g.age = lastGood ? `Last reading ${ago(lastGood.observedAt, now)}` : null;
-      windows = lastGood?.windows ?? [];
-    }
-    g.rows = windows.map((w) => cardRow(w, now));
-    const t = tightest(windows, now);
-    groups.push({ ...g, kind: "limits", folded: isFolded(prefs, p.id), summary: t ? cardRow(t, now) : null });
-  }
+  const groups = providers.map((p) => panelGroup(p, states[p.id], now, prefs)).filter(Boolean);
   return { groups, empty: groups.length === 0, arrows: groups.length >= 3 };
 }
 
-// The panel opens on limits: settings last only until it closes. It closes closeDelay
-// after the pointer leaves, and nothing reports that, so it's worked out on the way back.
+export const PANEL = { LIMITS: "limits", SETTINGS: "settings" };
+
+export const closedSinceLeft = (leftAt, nowMs, closeDelay) => leftAt != null && nowMs - leftAt > closeDelay;
+
 export function panelOnEnter(panel, leftAt, nowMs, closeDelay) {
-  return leftAt != null && nowMs - leftAt > closeDelay ? "limits" : panel;
+  return closedSinceLeft(leftAt, nowMs, closeDelay) ? PANEL.LIMITS : panel;
 }
 
-// ProviderState: { report: Report|null, lastGood: Report|null, installed: true|false|null }
+export function hoveredAfter(hovered, id, on) {
+  if (on) return id;
+  return hovered === id ? null : hovered;
+}
+
+function spendBarGroup(p, st, now, spendShown) {
+  const source = shownReading(st);
+  if (!st?.report || st.installed === false || !usedThisWeek(source) || !spendShown()) return null;
+  const failing = st.report.status !== "ok";
+  return {
+    providerId: p.id, name: p.name, icon: p.icon,
+    mark: failing ? FAILED_MARK : null,
+    dim: failing || isStale(source, now),
+    segments: [],
+    spend: tokens(source.spend.today),
+  };
+}
+
+function barReading(report, lastGood) {
+  if (!report) return { mark: LOADING_MARK, source: null };
+  if (report.status !== "ok") return { mark: FAILED_MARK, source: lastGood };
+  return { mark: null, source: report };
+}
+
+function limitsBarGroup(p, st, now, prefs) {
+  if (!isShown(prefs, p.id) || st?.installed === false) return null;
+  const { mark, source } = barReading(st?.report ?? null, st?.lastGood ?? null);
+  const segments = (source?.windows ?? [])
+    .filter((w) => isShown(prefs, p.id, w.id))
+    .map((w) => segmentView(w, now, prefs.showResetTime));
+  const dim = mark === FAILED_MARK || (source != null && isStale(source, now));
+  return { providerId: p.id, name: p.name, icon: p.icon, mark, dim, segments };
+}
+
 export function barModel(states, prefs, now, providers = PROVIDERS) {
-  const groups = [];
-  let spendOn = null; // worked out once, only if a spend provider is listed
-  for (const p of providers) {
-    if (isSpend(p)) {
-      const st = states[p.id];
-      const source = shown(st);
-      if (!st?.report || st.installed === false || !(source?.spend?.week > 0)) continue;
-      spendOn ??= spendDefault(states, prefs, providers);
-      if (!spendOnBar(prefs, p.id, spendOn)) continue;
-      const failing = st.report.status !== "ok";
-      const dim = failing || now - source.observedAt > STALE_AFTER;
-      groups.push({ providerId: p.id, name: p.name, icon: p.icon, mark: failing ? "!" : null, dim, segments: [], spend: tokens(source.spend.today) });
-      continue;
-    }
-    if (!isShown(prefs, p.id)) continue;
-    const st = states[p.id] ?? { report: null, lastGood: null, installed: null };
-    if (st.installed === false) continue;
-    let mark = null;
-    let source = st.report;
-    if (!st.report) {
-      mark = "…";
-      source = null;
-    } else if (st.report.status !== "ok") {
-      mark = "!";
-      source = st.lastGood;
-    }
-    const segments = (source?.windows ?? [])
-      .filter((w) => isShown(prefs, p.id, w.id))
-      .map((w) => segmentView(w, now, prefs.showResetTime));
-    const dim = mark === "!" || (source != null && now - source.observedAt > STALE_AFTER);
-    groups.push({ providerId: p.id, name: p.name, icon: p.icon, mark, dim, segments });
-  }
+  let spendDefaultOn = null;
+  const spendShown = (id) => () => {
+    spendDefaultOn ??= spendDefault(states, prefs, providers);
+    return spendOnBar(prefs, id, spendDefaultOn);
+  };
+  const groups = providers
+    .map((p) => (isSpend(p) ? spendBarGroup(p, states[p.id], now, spendShown(p.id)) : limitsBarGroup(p, states[p.id], now, prefs)))
+    .filter(Boolean);
   return { groups, empty: groups.length === 0 };
 }
 
-// Rough text widths at 11.8px (labels 10.5px): enough to pick a density, not to lay out.
-const GROUP = 20; // icon + gaps
-const spendWidth = (g) => 8 + 6.5 * "today".length + 7 * g.spend.length + 12;
+const GROUP_W = 20;
+const CHAR_W = 7;
+const LABEL_CHAR_W = 6.5;
+const SEGMENT_BAR_W = 30;
+const GAP_W = 12;
+const LABEL_GAP_W = 8;
+
+const spendWidth = (g) => LABEL_GAP_W + LABEL_CHAR_W * "today".length + CHAR_W * g.spend.length + GAP_W;
+
 function segmentWidth(s, density) {
-  const text = 7 * (density === 3 ? s.brief : s.text).length + 12;
-  if (density >= 2) return text;
-  const label = 8 + 6.5 * s.short.length;
-  return density === 1 ? label + text : label + 30 + text;
+  const text = CHAR_W * (density === DENSITY.BRIEF ? s.brief : s.text).length + GAP_W;
+  if (density >= DENSITY.NO_LABELS) return text;
+  const label = LABEL_GAP_W + LABEL_CHAR_W * s.short.length;
+  return density === DENSITY.NO_BARS ? label + text : label + SEGMENT_BAR_W + text;
 }
 
-// 0 = label + bar + percent, 1 = no bars, 2 = no labels, 3 = no time on calm windows.
+const groupWidth = (g, density) => GROUP_W + (g.spend != null ? spendWidth(g) : 0) + g.segments.reduce((a, s) => a + segmentWidth(s, density), 0);
+
 export function chooseDensity(model, widthPx, showBars = true) {
-  for (const d of showBars ? [0, 1, 2, 3] : [1, 2, 3]) {
-    const need = model.groups.reduce((sum, g) => sum + GROUP + (g.spend != null ? spendWidth(g) : 0) + g.segments.reduce((a, s) => a + segmentWidth(s, d), 0), 0);
-    if (need <= widthPx) return d;
-  }
-  return 3;
+  const steps = showBars ? [DENSITY.FULL, DENSITY.NO_BARS, DENSITY.NO_LABELS, DENSITY.BRIEF] : [DENSITY.NO_BARS, DENSITY.NO_LABELS, DENSITY.BRIEF];
+  return steps.find((d) => model.groups.reduce((sum, g) => sum + groupWidth(g, d), 0) <= widthPx) ?? DENSITY.BRIEF;
+}
+
+const SESSION_NUMBER_GAP_W = 14;
+
+export function sessionNumbersWidth(numbers) {
+  return numbers.reduce((w, n) => w + CHAR_W * n.text.length + SESSION_NUMBER_GAP_W, numbers.length ? SESSION_NUMBER_GAP_W : 0);
 }

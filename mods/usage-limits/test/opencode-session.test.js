@@ -19,6 +19,11 @@ const schemas = {
     create table session_message(id text, session_id text, type text, seq integer, data text);`,
 };
 
+const compactionStatus = (m) => {
+  if (!m.compaction) return undefined;
+  return m.failed ? "failed" : "completed";
+};
+
 function makeDb(sessions, extra = "") {
   const db = join(mkdtempSync(join(tmpdir(), "opencode-stores-")), "opencode.db");
   let sql = [...new Set(sessions.map((s) => s.storage))].map((v) => schemas[v]).join("\n") + extra;
@@ -33,11 +38,11 @@ function makeDb(sessions, extra = "") {
       const data = s.storage === "v1" ? { role: m.role, tokens: m.tokens, modelID: m.model,
         summary: m.compaction || undefined, finish: m.compaction ? "stop" : undefined,
         error: m.failed ? { name: "Aborted" } : undefined, parentID: m.parentID } :
-        { tokens: m.tokens, status: m.compaction ? (m.failed ? "failed" : "completed") : undefined };
+        { tokens: m.tokens, status: compactionStatus(m) };
       if (s.storage === "v1") {
         sql += `insert into message values (${q(id)},${q(s.id ?? "own")},${time + i},${time + i},${q(JSON.stringify(data))});\n`;
         const part = m.request ? { type: "compaction" } : { type: "text", text: "private message text", synthetic: Boolean(m.synthetic) };
-        sql += `insert into part values (${q(id + "-part")},${q(id)},${q(s.id ?? "own")},${time + i},${time + i},${q(JSON.stringify(part))});\n`;
+        sql += `insert into part values (${q(`${id  }-part`)},${q(id)},${q(s.id ?? "own")},${time + i},${time + i},${q(JSON.stringify(part))});\n`;
       } else sql += `insert into session_message values (${q(id)},${q(s.id ?? "own")},${q(m.compaction ? "compaction" : m.role)},${i + 1},${q(JSON.stringify(data))});\n`;
     });
   }

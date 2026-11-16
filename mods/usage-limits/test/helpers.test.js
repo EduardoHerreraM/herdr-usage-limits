@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, utimesSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MOD, HERE } from "./_util.js";
@@ -35,12 +35,15 @@ test("claude helper: skips banner and system events, prints the control_response
   assert.equal(alive("fake-cli/claude"), false, "fake CLI left running");
 });
 
+function assertGaveUpInTime(r, leftover, leftoverMessage) {
+  assert.deepEqual([r.status, r.stdout], [1, ""]);
+  assert.ok(r.ms < 20000, `took ${r.ms} ms`);
+  assert.equal(alive(leftover), false, leftoverMessage);
+}
+
 test("claude helper: CLI that never answers → exit 1 within 20 s and no leftover process", { timeout: 30000 }, () => {
   const r = run("claude-usage.sh", { HERDR_USAGE_CLAUDE_BIN: FAKE, HANG: "1" });
-  assert.equal(r.status, 1);
-  assert.equal(r.stdout, "");
-  assert.ok(r.ms < 20000, `took ${r.ms} ms`);
-  assert.equal(alive("sleep 60"), false, "hung CLI left running");
+  assertGaveUpInTime(r, "sleep 60", "hung CLI left running");
 });
 
 test("codex helper: bogus bin and no sessions dir → exit 127", () => {
@@ -61,23 +64,18 @@ test("codex helper: app-server answers through the pipe → prints the id 2 line
 
 test("codex helper: app-server that never answers → exit 1 within 20 s and no leftover process", { timeout: 30000 }, () => {
   const r = run("codex-limits.sh", { HERDR_USAGE_CODEX_BIN: FAKE_CODEX, HANG: "1", CODEX_HOME: mkdtempSync(join(tmpdir(), "codex-home-")) });
-  assert.equal(r.status, 1);
-  assert.equal(r.stdout, "");
-  assert.ok(r.ms < 20000, `took ${r.ms} ms`);
-  assert.equal(alive("sleep 60"), false, "hung app-server left running");
+  assertGaveUpInTime(r, "sleep 60", "hung app-server left running");
 });
 
 test("codex helper: codex missing but session logs exist → exit 127 (not a stale 'ok')", () => {
   const home = mkdtempSync(join(tmpdir(), "codex-home-"));
   mkdirSync(join(home, "sessions", "2026", "11", "04"), { recursive: true });
   const snap = JSON.parse(readFileSync(join(HERE, "fixtures", "codex-session-snapshot.json"), "utf8")).snapshot;
-  writeFileSync(join(home, "sessions", "2026", "11", "04", "rollout.jsonl"), JSON.stringify(snap) + "\n");
+  writeFileSync(join(home, "sessions", "2026", "11", "04", "rollout.jsonl"), `${JSON.stringify(snap)  }\n`);
   const r = run("codex-limits.sh", { HERDR_USAGE_CODEX_BIN: "/nonexistent/codex", CODEX_HOME: home });
   assert.equal(r.status, 127);
   assert.equal(r.stdout, "");
 });
-
-// ---- session.sh ----
 
 function session(args, env) {
   return spawnSync("sh", [join(MOD, "helpers", "session.sh"), ...args], { env: { ...process.env, ...env }, encoding: "utf8", timeout: 10000 });
@@ -162,11 +160,8 @@ test("session helper, codex: two open files without an exact binding are ambiguo
   assert.deepEqual([r.status, r.stdout], [1, ""]);
 });
 
-// ---- session.sh pi ----
-
 const runSession = (app, pid, env) => session([app, pid], env);
 
-// $HOME/.pi/agent/sessions/<encoded /home/demo/project>/<start>_<id>.jsonl
 function piHome(files) {
   const home = mkdtempSync(join(tmpdir(), "ul-pi-"));
   const dir = join(home, ".pi", "agent", "sessions", "--home-demo-project--");
@@ -176,31 +171,33 @@ function piHome(files) {
 }
 const PI = readFileSync(join(HERE, "fixtures", "pi-session.jsonl"), "utf8");
 const piReply = (input, model = "demo-model") =>
-  JSON.stringify({ type: "message", id: "b1", parentId: null, timestamp: "2026-11-02T10:05:02.000Z",
-    message: { role: "assistant", content: [], model, usage: { input, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: input + 1 } } }) + "\n";
-const home = piHome({ "2026-11-02T10-00-00-000Z_x.jsonl": PI });
+  `${JSON.stringify({ type: "message", id: "b1", parentId: null, timestamp: "2026-11-02T10:05:02.000Z",
+    message: { role: "assistant", content: [], model, usage: { input, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: input + 1 } } })  }\n`;
+const piDir = piHome({ "2026-11-02T10-00-00-000Z_x.jsonl": PI });
 const home2 = piHome({ "2026-11-02T10-00-00-000Z_a.jsonl": PI, "2026-11-02T10-05-00-000Z_b.jsonl": piReply(777) });
 
-const piEnv = (home, extra = {}) => ({ HERDR_USAGE_PI_HOME: join(home, ".pi"), HERDR_USAGE_PROC_CWD: "/home/demo/project",
-  HERDR_USAGE_PROC_START: "1793613600", HERDR_USAGE_PROC_PEERS: "1", ...extra }); // 2026-11-02T10:00:00Z
+const START = Date.UTC(2026, 10, 2, 10) / 1000;
+const piEnv = (piRoot, extra = {}) => ({ HERDR_USAGE_PI_HOME: join(piRoot, ".pi"), HERDR_USAGE_PROC_CWD: "/home/demo/project",
+  HERDR_USAGE_PROC_START: String(START), HERDR_USAGE_PROC_PEERS: "1", ...extra });
 
 test("pi session: last reply's context, real user messages only, the model", () => {
-  assert.equal(runSession("pi", "4242", piEnv(home)).stdout.trim(), "tokens=50500 calls=4 model=demo-model");
+  assert.equal(runSession("pi", "4242", piEnv(piDir)).stdout.trim(), "tokens=50500 calls=4 model=demo-model");
 });
 
 test("pi session: prints no conversation text", () => {
-  assert.doesNotMatch(runSession("pi", "4242", piEnv(home)).stdout, /hello|thanks|README|Done/);
+  assert.doesNotMatch(runSession("pi", "4242", piEnv(piDir)).stdout, /hello|thanks|README|Done/);
 });
 
 test("pi session: a session that ended before this process started is not its session", () => {
-  assert.equal(runSession("pi", "4242", piEnv(home, { HERDR_USAGE_PROC_START: "1893613600" })).status, 1);
+  assert.equal(runSession("pi", "4242", piEnv(piDir, { HERDR_USAGE_PROC_START: "1893613600" })).status, 1);
 });
 
 test("pi session: two in one folder, told apart by start time or not at all", () => {
-  // second file started 10:05:00; process started 10:05:01 → the second file
-  assert.match(runSession("pi", "4242", piEnv(home2, { HERDR_USAGE_PROC_PEERS: "2", HERDR_USAGE_PROC_START: "1793613901" })).stdout, /^tokens=777 /);
-  // process started 10:02:30, matching neither → nothing
-  const r = runSession("pi", "4242", piEnv(home2, { HERDR_USAGE_PROC_PEERS: "2", HERDR_USAGE_PROC_START: "1793613750" }));
+  const secondFileStartedAt = START + 300;
+  const justAfterSecondFile = String(secondFileStartedAt + 1);
+  assert.match(runSession("pi", "4242", piEnv(home2, { HERDR_USAGE_PROC_PEERS: "2", HERDR_USAGE_PROC_START: justAfterSecondFile })).stdout, /^tokens=777 /);
+  const betweenTheFiles = String(START + 150);
+  const r = runSession("pi", "4242", piEnv(home2, { HERDR_USAGE_PROC_PEERS: "2", HERDR_USAGE_PROC_START: betweenTheFiles }));
   assert.deepEqual([r.status, r.stdout], [1, ""]);
 });
 
@@ -210,18 +207,21 @@ test("pi session: a model id with other characters is dropped, numbers stay", ()
 });
 
 test("pi session: no folder for that directory → exit 1", () => {
-  const r = runSession("pi", "4242", piEnv(home, { HERDR_USAGE_PROC_CWD: "/home/demo/elsewhere" }));
+  const r = runSession("pi", "4242", piEnv(piDir, { HERDR_USAGE_PROC_CWD: "/home/demo/elsewhere" }));
   assert.deepEqual([r.status, r.stdout], [1, ""]);
 });
 
-// One Pi in the folder, but files of others that came and went: only a certain match.
-function piHomeTimed(files) { // { name: [text, mtime] }
+function piHomeTimed(files) {
   const h = piHome(Object.fromEntries(Object.entries(files).map(([n, [text]]) => [n, text])));
   const dir = join(h, ".pi", "agent", "sessions", "--home-demo-project--");
-  for (const [n, [, m]] of Object.entries(files)) utimesSync(join(dir, n), m, m);
+  for (const [name, [, mtime]] of Object.entries(files)) utimesSync(join(dir, name), mtime, mtime);
   return h;
 }
-const START = 1793613600; // 2026-11-02T10:00:00Z
+
+function assertNoPiSession(piRoot) {
+  const r = runSession("pi", "4242", piEnv(piRoot));
+  assert.deepEqual([r.status, r.stdout], [1, ""]);
+}
 
 test("pi session, one process: its own session is shown while an older-written other exists", () => {
   const h = piHomeTimed({ "2026-11-02T10-00-00-000Z_own.jsonl": [piReply(500), START + 200], "2026-11-02T09-00-00-000Z_old.jsonl": [piReply(900), START + 100] });
@@ -229,9 +229,7 @@ test("pi session, one process: its own session is shown while an older-written o
 });
 
 test("pi session, one process: another Pi wrote after it → nothing, not the other's numbers", () => {
-  const h = piHomeTimed({ "2026-11-02T10-00-00-000Z_own.jsonl": [piReply(500), START + 100], "2026-11-02T10-03-00-000Z_b.jsonl": [piReply(900), START + 300] });
-  const r = runSession("pi", "4242", piEnv(h));
-  assert.deepEqual([r.status, r.stdout], [1, ""]);
+  assertNoPiSession(piHomeTimed({ "2026-11-02T10-00-00-000Z_own.jsonl": [piReply(500), START + 100], "2026-11-02T10-03-00-000Z_b.jsonl": [piReply(900), START + 300] }));
 });
 
 test("pi session, one process: a resumed session is shown when it is the only candidate", () => {
@@ -240,21 +238,20 @@ test("pi session, one process: a resumed session is shown when it is the only ca
 });
 
 test("pi session, one process: two candidates and neither started with it → nothing", () => {
-  const h = piHomeTimed({ "2026-11-01T08-00-00-000Z_a.jsonl": [piReply(600), START + 50], "2026-11-01T09-00-00-000Z_b.jsonl": [piReply(900), START + 80] });
-  const r = runSession("pi", "4242", piEnv(h));
-  assert.deepEqual([r.status, r.stdout], [1, ""]);
+  assertNoPiSession(piHomeTimed({ "2026-11-01T08-00-00-000Z_a.jsonl": [piReply(600), START + 50], "2026-11-01T09-00-00-000Z_b.jsonl": [piReply(900), START + 80] }));
 });
-
-// ---- session.sh opencode ----
 
 const HAS_SQLITE = spawnSync("sqlite3", ["-version"], { stdio: "ignore" }).status === 0;
 const sqliteTest = (name, fn) => test(name, HAS_SQLITE ? {} : { skip: "sqlite3 not installed" }, fn);
 
-const OC_START = 1793613600; // 2026-11-02T10:00:00Z, the process start
+const OC_START = START;
 const ocTokens = (input, output = 0) => ({ input, output, reasoning: 0, cache: { read: 0, write: 0 } });
-const sq = (v) => (v === null ? "NULL" : typeof v === "number" ? String(v) : `'${String(v).replace(/'/g, "''")}'`);
+function sq(v) {
+  if (v === null) return "NULL";
+  if (typeof v === "number") return String(v);
+  return `'${String(v).replace(/'/g, "''")}'`;
+}
 
-// sessions: [{ id, parent, dir, updated (s), model, rows: [[type, data]] }]
 function ocDb(sessions) {
   const file = join(mkdtempSync(join(tmpdir(), "ul-oc-")), "opencode.db");
   let sql = "create table session_v2 (id text primary key, parent_id text, directory text not null, model text, time_created integer not null, time_updated integer not null);\n"
@@ -330,19 +327,18 @@ sqliteTest("opencode session: no sqlite3, or no database → exit 1, no output",
   assert.deepEqual([b.status, b.stdout], [1, ""]);
 });
 
-// Peers looked up for real (through fake ps and lsof): the background service isn't a client.
-function ocProcs(procs) { // { pid: [comm, args] }, all in /home/demo/project
+function fakePsAndLsof(procs) {
   const dir = mkdtempSync(join(tmpdir(), "ul-bin-"));
   const tool = (name, body) => writeFileSync(join(dir, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
-  const list = Object.entries(procs).map(([p, [c]]) => `${p} ${c}`).join("\\n");
-  const one = Object.entries(procs).map(([p, [c, a]]) =>
-    `  ${p}) [ "$2" = "comm=" ] && echo '${c}' || echo '${a}' ;;`).join("\n");
+  const list = Object.entries(procs).map(([pid, [command]]) => `${pid} ${command}`).join("\\n");
+  const one = Object.entries(procs).map(([pid, [command, args]]) =>
+    `  ${pid}) [ "$2" = "comm=" ] && echo '${command}' || echo '${args}' ;;`).join("\n");
   tool("ps", `if [ "$1" = -A ]; then printf '${list}\\n'; exit 0; fi\ncase "$4" in\n${one}\n  *) exit 1 ;;\nesac`);
   tool("lsof", 'printf "p%s\\nn/home/demo/project\\n" "$6"');
   return dir;
 }
 const ocPeersEnv = (db, procs) => {
-  const env = ocEnv(db, { PATH: `${ocProcs(procs)}:${process.env.PATH}` });
+  const env = ocEnv(db, { PATH: `${fakePsAndLsof(procs)}:${process.env.PATH}` });
   delete env.HERDR_USAGE_PROC_PEERS;
   return env;
 };
@@ -358,28 +354,21 @@ sqliteTest("opencode session: a second terminal client in the folder → nothing
   assert.deepEqual([r.status, r.stdout], [1, ""]);
 });
 
-// OpenCode 2.2.5 writes a compaction as a session_message of type "compaction" whose
-// tokens are the summarising call's, not the context after it.
-const OC_COMPACTED = [...OC_ROWS, ["compaction", { status: "completed", reason: "manual", tokens: ocTokens(18084, 181) }]];
+const OC_COMPACTED_WITH_SUMMARY_CALL_TOKENS = [...OC_ROWS, ["compaction", { status: "completed", reason: "manual", tokens: ocTokens(18084, 181) }]];
 
 sqliteTest("opencode session: right after a compaction the old context isn't shown", () => {
-  const r = runSession("opencode", "4242", ocEnv(ocDb([{ id: "ses_own", rows: OC_COMPACTED }])));
+  const r = runSession("opencode", "4242", ocEnv(ocDb([{ id: "ses_own", rows: OC_COMPACTED_WITH_SUMMARY_CALL_TOKENS }])));
   assert.deepEqual([r.status, r.stdout], [1, ""]);
 });
 
 sqliteTest("opencode session: compactions are counted, the reply after the last one is the context", () => {
-  const rows = [...OC_COMPACTED, ["user", {}], ["assistant", { tokens: ocTokens(2100, 40) }], ["compaction", { status: "failed", tokens: ocTokens(5) }]];
+  const rows = [...OC_COMPACTED_WITH_SUMMARY_CALL_TOKENS, ["user", {}], ["assistant", { tokens: ocTokens(2100, 40) }], ["compaction", { status: "failed", tokens: ocTokens(5) }]];
   assert.equal(runSession("opencode", "4242", ocEnv(ocDb([{ id: "ses_own", rows }]))).stdout, "tokens=2140 calls=4 compactions=1 model=demo-model\n");
 });
 
 test("pi session, one process: a lone candidate that started after it, not with it → nothing", () => {
-  // a fresh Pi with no file yet; another Pi started 10:03 in the folder, wrote, quit
-  const h = piHomeTimed({ "2026-11-02T10-03-00-000Z_other.jsonl": [piReply(900), START + 300] });
-  const r = runSession("pi", "4242", piEnv(h));
-  assert.deepEqual([r.status, r.stdout], [1, ""]);
+  assertNoPiSession(piHomeTimed({ "2026-11-02T10-03-00-000Z_other.jsonl": [piReply(900), START + 300] }));
 });
-
-// ---- pi-spend.sh ----
 
 const DAY = 86400;
 function piSessions(files) {
@@ -395,9 +384,9 @@ function piSessions(files) {
   return { HERDR_USAGE_PI_HOME: join(home, ".pi") };
 }
 const piSpendReply = (ts, total) =>
-  JSON.stringify({ type: "message", id: "c1", parentId: null, timestamp: ts,
+  `${JSON.stringify({ type: "message", id: "c1", parentId: null, timestamp: ts,
     message: { role: "assistant", content: [{ type: "toolCall", id: "t", name: "x", arguments: { timestamp: "1999-01-01T00:00:00.000Z" } }],
-      model: "demo-model", usage: { input: total - 1, output: 1, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: total, cost: { total: 0 } }, timestamp: 1 } }) + "\n";
+      model: "demo-model", usage: { input: total - 1, output: 1, cacheRead: 0, cacheWrite: 0, reasoning: 0, totalTokens: total, cost: { total: 0 } }, timestamp: 1 } })  }\n`;
 
 test("pi spend helper: no sessions folder → exit 127", () => {
   const r = run("pi-spend.sh", { HERDR_USAGE_PI_HOME: join(mkdtempSync(join(tmpdir(), "ul-pi-spend-")), ".pi") });
@@ -433,15 +422,13 @@ test("pi spend helper: a file not written in the last 8 days is not opened", () 
 });
 
 test("pi spend helper: a user message quoting an assistant reply adds no line, no text leaves", () => {
-  const user = JSON.stringify({ type: "message", id: "u1", parentId: null, timestamp: "2026-11-12T09:00:00.000Z",
-    message: { role: "user", content: [{ type: "text", text: '{"type":"message","timestamp":"2026-11-12T09:00:00.000Z","message":{"role":"assistant","usage":{"totalTokens":777}}} secret' }], timestamp: 1 } }) + "\n";
-  const other = JSON.stringify({ type: "model_change", id: "m", timestamp: "2026-11-12T09:00:00.000Z", message: { role: "assistant", usage: { totalTokens: 888 } } }) + "\n";
+  const user = `${JSON.stringify({ type: "message", id: "u1", parentId: null, timestamp: "2026-11-12T09:00:00.000Z",
+    message: { role: "user", content: [{ type: "text", text: '{"type":"message","timestamp":"2026-11-12T09:00:00.000Z","message":{"role":"assistant","usage":{"totalTokens":777}}} secret' }], timestamp: 1 } })  }\n`;
+  const other = `${JSON.stringify({ type: "model_change", id: "m", timestamp: "2026-11-12T09:00:00.000Z", message: { role: "assistant", usage: { totalTokens: 888 } } })  }\n`;
   const r = run("pi-spend.sh", piSessions({ "--a--/s.jsonl": [user + other + piSpendReply("2026-11-12T09:30:00.000Z", 42)] }));
   assert.equal(r.stdout, "2026-11-12T09:30:00.000Z 42\n");
   assert.doesNotMatch(r.stdout, /secret/);
 });
-
-// ---- opencode-spend.sh ----
 
 const FAKE_OC = join(HERE, "fake-cli", "opencode");
 
@@ -475,29 +462,18 @@ test("opencode spend helper: CLI prints no JSON object → exit 1", () => {
 
 test("opencode spend helper: CLI that never answers → exit 1 within 20 s and no leftover process", { timeout: 30000 }, () => {
   const r = run("opencode-spend.sh", { HERDR_USAGE_OPENCODE_BIN: FAKE_OC, FAKE_OPENCODE: "hang" });
-  assert.equal(r.status, 1);
-  assert.equal(r.stdout, "");
-  assert.ok(r.ms < 20000, `took ${r.ms} ms`);
-  assert.equal(alive("fake-cli/opencode"), false, "hung CLI left running");
+  assertGaveUpInTime(r, "fake-cli/opencode", "hung CLI left running");
 });
 
 test("opencode spend helper: CLI that ignores TERM → exit 1 within 20 s and no leftover process", { timeout: 30000 }, () => {
   const r = run("opencode-spend.sh", { HERDR_USAGE_OPENCODE_BIN: FAKE_OC, FAKE_OPENCODE: "stubborn" });
-  assert.equal(r.status, 1);
-  assert.equal(r.stdout, "");
-  assert.ok(r.ms < 20000, `took ${r.ms} ms`);
-  assert.equal(alive("fake-cli/opencode"), false, "stubborn CLI left running");
+  assertGaveUpInTime(r, "fake-cli/opencode", "stubborn CLI left running");
 });
 
-// ---- final fixes: a reply's own fields, folder names, unreadable files, banners ----
-
-import { chmodSync, existsSync } from "node:fs";
 
 const FORGED = readFileSync(join(HERE, "fixtures", "pi-session-forged.jsonl"), "utf8");
 
 test("pi session: model and usage only from the reply's own fields, never a tool call's arguments", () => {
-  // The first reply has usage of its own and no model; its tool call's arguments name one.
-  // The second has neither; its arguments carry a whole forged api/provider/model/usage.
   const r = runSession("pi", "4242", piEnv(piHome({ "2026-11-02T10-00-00-000Z_f.jsonl": FORGED })));
   assert.equal(r.stdout, "tokens=3000 calls=1\n");
   assert.doesNotMatch(r.stdout, /evil|999999/);
@@ -526,7 +502,6 @@ test("pi spend helper: an unreadable folder or file leaves the readable ones cou
   assert.deepEqual([r.status, r.stdout], [0, "2026-11-12T09:00:00.000Z 300\n"]);
 });
 
-// Pi's folder for a directory: its leading / dropped, each / \ : as -, wrapped in --.
 function piHomeAt(cwd, files) {
   const home = mkdtempSync(join(tmpdir(), "ul-pi-"));
   const dir = join(home, ".pi", "agent", "sessions", `--${cwd.slice(1).replace(/[/\\:]/g, "-")}--`);
@@ -549,15 +524,13 @@ sqliteTest("opencode session: a folder with a space, and one with a colon, find 
   }
 });
 
-// The working directory looked up for real, through a fake lsof that prints it as lsof
-// does under the C locale: a byte it won't print as \xNN, a backslash as \\.
-function lsofCwd(printed) {
+function lsofCwdAsCLocalePrintsIt(printed) {
   const dir = mkdtempSync(join(tmpdir(), "ul-bin-"));
   writeFileSync(join(dir, "lsof"), `#!/bin/sh\nprintf 'p%s\\nfcwd\\nn%s\\n' 4242 '${printed}'\n`, { mode: 0o755 });
   return dir;
 }
 const lsofEnv = (env, printed) => {
-  const e = { ...env, PATH: `${lsofCwd(printed)}:${process.env.PATH}` };
+  const e = { ...env, PATH: `${lsofCwdAsCLocalePrintsIt(printed)}:${process.env.PATH}` };
   delete e.HERDR_USAGE_PROC_CWD;
   return e;
 };
@@ -577,7 +550,6 @@ sqliteTest("opencode session: a folder with a backslash and a percent sign, as l
 });
 
 test("pi session: an escape lsof uses that can't be undone (a control character) → nothing", NO_PROC, () => {
-  // A folder whose name really is a\nb (backslash, n) must not be taken for it either.
   const h = piHomeAt("/home/demo/a\\nb", { "2026-11-02T10-00-00-000Z_x.jsonl": piReply(654) });
   const r = runSession("pi", "4242", lsofEnv(piEnv(h), "/home/demo/a\\nb"));
   assert.deepEqual([r.status, r.stdout], [1, ""]);

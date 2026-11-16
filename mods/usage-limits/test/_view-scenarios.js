@@ -1,5 +1,3 @@
-// Provider states for the "nothing changes for a Claude + Codex user" guard in view.test.js.
-// test/fixtures/view-before.json is cardModel/barModel of these, from the code before spend.
 import claude from "../providers/claude.js";
 import codex from "../providers/codex.js";
 import { read } from "./_util.js";
@@ -30,11 +28,7 @@ export const scenarios = {
   noState: () => ({}),
 };
 
-// More of the same guard: test/fixtures/view-before-extra.json is what the code at 19fda91
-// gives for these (its lib/view.js, lib/prefs.js and providers, run once from a copy).
-// Each state is drawn with each of BAR_PREFS, as main.js does: through effectivePrefs.
 export const extraScenarios = {
-  // Claude's 5-hour reset has passed (shown as —) and Codex's weekly one too.
   expired: () => {
     const s = fresh();
     const pass = (r, id) => ({ ...r, windows: r.windows.map((w) => (w.id === id ? { ...w, resetsAt: NOW - 60 } : w)) });
@@ -42,7 +36,6 @@ export const extraScenarios = {
     s.codex = { ...s.codex, report: pass(s.codex.report, "codex:secondary"), lastGood: pass(s.codex.lastGood, "codex:secondary") };
     return s;
   },
-  // Hot and warm windows, so the times to reset and the density steps show.
   tight: () => {
     const s = fresh();
     const set = (r, id, percent) => ({ ...r, windows: r.windows.map((w) => (w.id === id ? { ...w, percent } : w)) });

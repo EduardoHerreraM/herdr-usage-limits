@@ -6,7 +6,6 @@ export const HERE = dirname(fileURLToPath(import.meta.url));
 export const MOD = join(HERE, "..");
 export const NOW = 1793779000;
 
-// A fixture as the helper prints it: one compact JSON line.
 export function read(name) {
   return JSON.stringify(JSON.parse(readFileSync(join(HERE, "fixtures", name), "utf8")));
 }

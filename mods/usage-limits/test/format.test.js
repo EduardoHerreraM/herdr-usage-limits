@@ -1,10 +1,9 @@
 process.env.TZ = "UTC";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { timeLeft, level, pace, ago } from "../lib/format.js";
-import { tokens } from "../lib/format.js";
+import { timeLeft, level, pace, ago, tokens } from "../lib/format.js";
 
-const NOW = Date.UTC(2026, 10, 4, 8, 0, 0) / 1000; // Wed 2026-11-04 08:00 UTC
+const NOW = Date.UTC(2026, 10, 4, 8, 0, 0) / 1000;
 
 test("timeLeft", () => {
   assert.equal(timeLeft(38 * 60), "38m");

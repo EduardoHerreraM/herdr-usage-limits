@@ -85,7 +85,7 @@ test("toggleShowBars flips only that choice", () => {
 test("old prefs: nothing folded, everything in the panel, no spend choice", () => {
   const p = effectivePrefs({ hidden: ["codex"], hiddenWindows: ["claude:session"] }, undefined);
   assert.deepEqual([p.panelHidden, p.folded, p.spendOnBar], [[], [], {}]);
-  assert.equal(inPanel(p, "codex"), true);       // hidden still means the bar only
+  assert.equal(inPanel(p, "codex"), true, "hidden still means the bar only");
   assert.equal(inPanel(p, "session"), true);
   assert.equal(isFolded(p, "claude"), false);
   assert.equal(isShown(p, "codex"), false);

@@ -1,8 +1,6 @@
-// Text and numbers shown to the person. Pure: no Herdr imports.
-
 const WARN = 70;
 const HOT = 90;
-const PACE_MARGIN = 10; // percentage points before "ahead" / "under"
+const PACE_MARGIN_POINTS = 10;
 
 export function timeLeft(sec) {
   const s = Math.max(0, Math.floor(sec));
@@ -21,20 +19,22 @@ export function tokens(n) {
   return `${(n / 1e6).toFixed(1).replace(/\.0$/, "")}M`;
 }
 
-
 export function level(percent) {
   if (percent >= HOT) return "hot";
   if (percent >= WARN) return "warn";
   return "ok";
 }
 
-// How much of the window's time has passed, and whether usage runs ahead of it.
+function verdict(percent, clock) {
+  if (percent > clock + PACE_MARGIN_POINTS) return "ahead";
+  if (percent < clock - PACE_MARGIN_POINTS) return "under";
+  return "on pace";
+}
+
 export function pace(w, now) {
   if (w.resetsAt == null || !w.durationSec) return null;
   const elapsed = Math.min(1, Math.max(0, 1 - (w.resetsAt - now) / w.durationSec));
-  const clock = elapsed * 100;
-  const verdict = w.percent > clock + PACE_MARGIN ? "ahead" : w.percent < clock - PACE_MARGIN ? "under" : "on pace";
-  return { elapsed, verdict };
+  return { elapsed, verdict: verdict(w.percent, elapsed * 100) };
 }
 
 export function ago(epoch, now) {

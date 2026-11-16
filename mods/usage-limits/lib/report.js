@@ -1,10 +1,3 @@
-// Shapes shared by every provider.
-//
-// Window: { id, short, long, percent (0–100), resetsAt (epoch s | null), durationSec (s | null) }
-// Report: { status: "ok" | "unavailable" | "error", message, plan, observedAt (epoch s), source, windows }
-// A spend provider's ok report has no windows and carries spend: { today, week } (token counts;
-// week is the last 7 days, today included).
-
 export function makeWindow({ id, short, long, percent, resetsAt = null, durationSec = null }) {
   return {
     id,
@@ -32,7 +25,6 @@ export function unavailableReport(source, message, now) {
   return { status: "unavailable", message, plan: null, observedAt: now, source, windows: [] };
 }
 
-// ISO 8601 or epoch seconds → epoch seconds; anything else → null.
 export function toEpoch(value) {
   if (value == null) return null;
   if (typeof value === "number") return Number.isFinite(value) ? Math.floor(value) : null;
@@ -40,7 +32,6 @@ export function toEpoch(value) {
   return Number.isNaN(ms) ? null : Math.floor(ms / 1000);
 }
 
-// Every line of `text` that parses as a JSON object.
 export function jsonLines(text) {
   const out = [];
   for (const line of String(text ?? "").split("\n")) {
@@ -48,9 +39,7 @@ export function jsonLines(text) {
     if (!s.startsWith("{")) continue;
     try {
       out.push(JSON.parse(s));
-    } catch {
-      // not JSON: skip (banners, partial lines)
-    }
+    } catch {}
   }
   return out;
 }

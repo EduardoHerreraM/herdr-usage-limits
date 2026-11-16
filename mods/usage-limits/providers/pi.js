@@ -1,6 +1,3 @@
-// Pi: tokens spent, added up from its session files (helpers/pi-spend.sh prints
-// "<ISO timestamp> <totalTokens>" per reply). Days are local: today starts at local
-// midnight, the 7 days at local midnight six days before (today included).
 import { spendReport } from "../lib/report.js";
 
 const SOURCE = "Pi session files";
@@ -29,7 +26,7 @@ export default {
   name: "Pi",
   icon: "icons/pi.svg",
   kind: "spend",
-  tint: true, // a one-color glyph: drawn in the text color, as Herdr does for its own
+  oneColorGlyph: true,
   helper: "helpers/pi-spend.sh",
   parse,
 };
