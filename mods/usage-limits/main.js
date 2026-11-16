@@ -26,7 +26,7 @@ function panelIsEmpty(view, panel, session, prefs) {
 export default class UsageLimits extends View {
   init(_props, cx) {
     Object.assign(this, {
-      width: 0, panel: PANEL.LIMITS, leftAtMs: null, hovered: null, foldedSincePanelOpened: new Set(),
+      width: 0, panel: PANEL.LIMITS, leftAtMs: null, hovered: null,
       terminal: null, session: null, sessionReadAtMs: 0, sessionBusy: false, sessionChoices: null,
       sessionChoosing: false, sessionManual: false, sessionRevision: 0,
       lastFetchAtS: {}, fetching: {}, unwanted: {},
@@ -123,7 +123,7 @@ export default class UsageLimits extends View {
     const empty = panelIsEmpty(this, panel, session, prefs);
     if (empty) this.panel = PANEL.SETTINGS;
     const draw = {
-      t, act: this.act, prefs, hovered: this.hovered, foldedHere: this.foldedSincePanelOpened, cooling: refreshCooling(),
+      t, act: this.act, prefs, hovered: this.hovered, cooling: refreshCooling(),
       choosing: this.sessionChoosing, choices: this.sessionChoices, manual: this.sessionManual,
     };
     return this.panel === PANEL.SETTINGS ? settingsPanel(!empty, st, draw) : limitsPanel(panel, session, draw);

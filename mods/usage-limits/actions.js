@@ -50,10 +50,7 @@ function pointerActions(view) {
       view.leftAtMs = Date.now();
       return;
     }
-    if (closedSinceLeft(view.leftAtMs, Date.now(), PANEL_CLOSE_DELAY_MS)) {
-      view.hovered = null;
-      view.foldedSincePanelOpened.clear();
-    }
+    if (closedSinceLeft(view.leftAtMs, Date.now(), PANEL_CLOSE_DELAY_MS)) view.hovered = null;
     view.panel = panelOnEnter(view.panel, view.leftAtMs, Date.now(), PANEL_CLOSE_DELAY_MS);
     view.leftAtMs = null;
     if (Date.now() - view.sessionReadAtMs >= SESSION_REREAD_ON_HOVER_MS) view.readSession(cx);
@@ -64,10 +61,6 @@ function pointerActions(view) {
     hoverPanel(on, cx) {
       if (!on && view.hovered != null) {
         view.hovered = null;
-        cx.notify();
-      }
-      if (!on && view.foldedSincePanelOpened.size) {
-        view.foldedSincePanelOpened.clear();
         cx.notify();
       }
       hover(on, cx);
@@ -94,10 +87,7 @@ function panelActions(view) {
       cx.notify();
     },
     fold(id, cx) {
-      const next = toggleFolded(view.prefs(), id);
-      setShared(KEY_PREFS, next);
-      if (next.folded.includes(id)) view.foldedSincePanelOpened.add(id);
-      else view.foldedSincePanelOpened.delete(id);
+      setShared(KEY_PREFS, toggleFolded(view.prefs(), id));
       cx.notify();
     },
   };

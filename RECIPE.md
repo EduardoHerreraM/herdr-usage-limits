@@ -350,14 +350,11 @@ on the bar and in the panel. It never reads a token.
 - `opencode stats` and `sqlite3` can hang: run them with stdin closed and a
   deadline.
 - Folding: the `HoverCard` is anchored at the bottom and grows upward, so a
-  fold would slide the header down under a still pointer, which could end up
-  above the card and close it. A group folded by a click therefore keeps,
-  right under its folded line, the space its rows took: the same age line and
-  rows, drawn with `.invisible()` (layout kept, nothing painted, no id, no
-  hint), until the pointer leaves the panel (the shell's `on_hover(false)`) or
-  the panel opens again; then it goes. A group already folded when the panel
-  opened has none; unfolding needs none. Not yet tried under a real pointer:
-  `herdr-app check` only builds it.
+  fold moves the clicked header down by the height of its rows. A folded
+  group takes no more room than its line, chosen over keeping invisible
+  space under it: with little above the header (the top group), the card's
+  top can drop below a still pointer and the card closes; hovering again
+  opens it.
 - A Claude turn with a server tool sums `usage` over all its requests, which
   doubles the context: read the last entry of `usage.iterations`.
 - Claude's `last-prompt` marker repeats within a turn (65 for 19 messages): count
