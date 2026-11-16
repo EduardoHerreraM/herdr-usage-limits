@@ -166,7 +166,9 @@ on the bar and in the panel. It never reads a token.
     {"subtype":"get_usage","skip_behaviors":true}}`, prints the
     `control_response` line (`rate_limits.limits[]`: `kind` `session` /
     `weekly_all` / `weekly_scoped` + `scope.model.display_name`, `percent`
-    0–100, `resets_at` ISO 8601), kills the CLI.
+    0–100, `resets_at` ISO 8601), kills the CLI. `--safe-mode` keeps hooks,
+    MCP servers and customizations out of that run; it sends no prompt and
+    starts no turn.
   - `helpers/codex-limits.sh`: runs `codex app-server`, JSON-RPC
     `initialize` / `initialized` / `account/rateLimits/read`, prints the
     `"id":2` line (`primary`/`secondary`: `usedPercent`, `windowDurationMins`,
@@ -202,7 +204,11 @@ on the bar and in the panel. It never reads a token.
   - `helpers/session.sh claude|codex|opencode|pi <pid>`: one line of numbers,
     `tokens=N calls=N`, plus `compactions=N` (Claude, OpenCode), `window=N`
     (Codex), `model=<id>` (OpenCode, Pi; only if it matches
-    `[A-Za-z0-9._:/-]+`). Exit 0 with it, 1 when no session is certain.
+    `[A-Za-z0-9._:/-]+`). Exit 0 with it, 1 when no session is certain; Codex:
+    2 with JSON choices (session IDs and titles) when one must be picked, and
+    after a pick the mod passes the thread ID and the process identity as
+    third and fourth arguments. Claude's files: `CLAUDE_CONFIG_DIR`, else
+    `%USERPROFILE%\.claude` when it exists, else `~/.claude`.
     OpenCode: top-level `session_v2` rows and `session_message` rows of
     `opencode.db`, through `sqlite3 -readonly`; context = the newest reply's
     `input + output + reasoning + cache.read + cache.write`. Pi:
@@ -213,7 +219,10 @@ on the bar and in the panel. It never reads a token.
   - Env overrides: `HERDR_USAGE_PI_HOME` (instead of `~/.pi`),
     `HERDR_USAGE_OPENCODE_DB` (instead of
     `${XDG_DATA_HOME:-~/.local/share}/opencode/opencode.db`),
-    `HERDR_USAGE_SQLITE_BIN` (instead of `sqlite3`).
+    `HERDR_USAGE_SQLITE_BIN` (instead of `sqlite3`). Tests replace what is
+    looked up about the process: `HERDR_USAGE_PROC_CWD`,
+    `HERDR_USAGE_PROC_START` (epoch s) and `HERDR_USAGE_PROC_PEERS` (agents of
+    that name in that folder, itself included).
 - Approach for Claude's `get_usage`: credit to
   [jmalicki/herdr-mod-ai-usage](https://github.com/jmalicki/herdr-mod-ai-usage) (MIT).
 
@@ -251,7 +260,10 @@ on the bar and in the panel. It never reads a token.
 - `mods/usage-limits/test/main.test.js` runs the real `main.js` over host
   stand-ins and compares what it draws and does, click by click, with
   `test/fixtures/main-snapshot.json`; `UPDATE_SNAPSHOT=1` rewrites it after a
-  change meant to show.
+  change meant to show. `view-before.json` is `cardModel`/`barModel` of the
+  scenarios in `_view-scenarios.js` from the code before spend providers, and
+  `view-before-extra.json` from the code at `19fda91`: the guard that a Claude
+  + Codex user sees no change.
 
 ## What it runs and reads
 
@@ -270,7 +282,9 @@ on the bar and in the panel. It never reads a token.
 - Reads the focused session: Claude's and Codex's logs, OpenCode's database
   through `sqlite3`, read-only, and Pi's session files; Pi's files of the last
   8 days for its tokens. All of them hold the conversation. Only numbers
-  (counts and times) and a model id leave `session.sh` and `pi-spend.sh`;
+  (counts and times) and a model id leave `session.sh` and `pi-spend.sh`,
+  except Codex's session picker, which passes session IDs and titles (never
+  message text);
   `opencode stats`' reply reaches the mod whole (counts, costs, model and tool
   names, dates; no message text), and the mod uses its token numbers. Never
   runs `pi`.

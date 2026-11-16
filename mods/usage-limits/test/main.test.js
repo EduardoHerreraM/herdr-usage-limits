@@ -188,7 +188,8 @@ const snapshot = async () => {
 
 test("main.js draws and reacts as recorded in fixtures/main-snapshot.json", async () => {
   const now = await snapshot();
-  if (process.env.UPDATE_SNAPSHOT === "1" || !existsSync(SNAPSHOT)) writeFileSync(SNAPSHOT, `${JSON.stringify(now, null, 1)}\n`);
+  if (process.env.UPDATE_SNAPSHOT === "1") writeFileSync(SNAPSHOT, `${JSON.stringify(now, null, 1)}\n`);
+  assert.ok(existsSync(SNAPSHOT), "no recorded run: UPDATE_SNAPSHOT=1 records one");
   const before = JSON.parse(readFileSync(SNAPSHOT, "utf8"));
   for (const name of Object.keys(before)) {
     for (const [i, frame] of before[name].entries()) assert.deepEqual(now[name][i], frame, `${name} / ${frame.label}`);
