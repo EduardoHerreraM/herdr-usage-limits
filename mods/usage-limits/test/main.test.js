@@ -46,7 +46,9 @@ const plain = (x) => {
   if (Array.isArray(x)) return x.map(plain);
   if (x == null || typeof x !== "object" || !x.calls) return x;
   const calls = x.calls.flatMap(([name, args]) => (name === "children" ? args[0].map((c) => ["child", plain(c)]) : [[name, ...args.map(plain)]]));
-  return [x.kind, ...x.args.map(plain), ...calls];
+  const children = calls.filter(([name]) => name === "child").map(([, child]) => child);
+  const style = calls.filter(([name]) => name !== "child").sort(([a], [b]) => a.localeCompare(b));
+  return { kind: x.kind, args: x.args.map(plain), style, children };
 };
 
 function session({ helpers, terminal = null, shared = {}, props = null }) {
