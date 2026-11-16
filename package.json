@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test \"mods/*/test/*.test.js\" \"test/quality/*.test.js\"",
+    "test": "node --test \"mods/*/test/*.test.js\" && node --test \"test/quality/*.test.js\"",
     "lint": "eslint ."
   },
   "devDependencies": {

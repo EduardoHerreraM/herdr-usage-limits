@@ -1,4 +1,3 @@
--- Legacy session/message/part storage. Never expose message text to the mod.
 create temp view ul_sessions_v1 as
 select id, parent_id, directory, time_updated, null as model, 'legacy' as storage
 from session;

@@ -1,7 +1,7 @@
 import { div, image, svg } from "gpui-kit";
 import { PROVIDERS } from "../providers/index.js";
+import { MOD } from "../lib/mod.js";
 
-export const MOD = "usage-limits";
 export const NO_READING = "—";
 export const SESSION_TITLE = "This session";
 export const DIMMED = 0.55;

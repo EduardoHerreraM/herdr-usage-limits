@@ -1,4 +1,3 @@
--- The only session selection and statistics query. Storage differences end in the adapters.
 with candidates as (
   select s.*,
     row_number() over (partition by s.id order by

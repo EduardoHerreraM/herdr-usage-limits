@@ -24,6 +24,10 @@ test('python: comments are found, the shebang and a # in a string are not', () =
   assert.deepEqual(lines('python', '#!/usr/bin/env python3\nx = "#"  # one\n# two\n'), [2, 3]);
 });
 
+test('awk: any # is taken for a comment, as awk programs here need no literal #', () => {
+  assert.deepEqual(lines('awk', '{ print $1 }\n# one\n{ n++ } # two\n'), [2, 3]);
+});
+
 test('sql: -- and /* */ are comments, the same inside a string are not', () => {
   assert.deepEqual(lines('sql', "SELECT '--', 'a /* b */'\n-- one\nFROM t /* two */;\n"), [2, 3]);
 });

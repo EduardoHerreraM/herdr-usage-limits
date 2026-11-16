@@ -39,7 +39,11 @@ export function sqlComments(text) {
     .map((match) => ({ line: text.slice(0, match.index).split('\n').length, text: match[0] }));
 }
 
-const READERS = { javascript: jsComments, python: pythonComments, shell: shellComments, sql: sqlComments };
+export function awkComments(text) {
+  return text.split('\n').flatMap((line, i) => (line.includes('#') ? [{ line: i + 1, text: line }] : []));
+}
+
+const READERS = { javascript: jsComments, python: pythonComments, shell: shellComments, sql: sqlComments, awk: awkComments };
 
 export function commentsIn(lang, text) {
   return READERS[lang](text);

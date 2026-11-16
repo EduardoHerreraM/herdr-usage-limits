@@ -1,7 +1,7 @@
 import { appHome, exec, shared } from "herdr";
 import { runSh } from "./sh.js";
 import { KEY_BINDINGS, codexBinding, sessionReadResult } from "../lib/session-binding.js";
-import { MOD } from "../ui/kit.js";
+import { MOD } from "../lib/mod.js";
 
 const SPEND_HELPER_DEADLINE_MS = 15 * 1000;
 const SESSION_HELPER_DEADLINE_MS = 15 * 1000;

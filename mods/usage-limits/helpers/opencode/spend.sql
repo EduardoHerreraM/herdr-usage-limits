@@ -1,4 +1,3 @@
--- Spending includes paid compaction requests and subagents, unlike session context.
 with ranked as (
   select *, row_number() over (partition by id order by populated desc, time_updated desc, storage asc) as n
   from ul_spend_sessions

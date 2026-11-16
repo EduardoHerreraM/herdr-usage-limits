@@ -1,4 +1,3 @@
--- Current session_v2/session_message storage, same contract as legacy.sql.
 create temp view ul_sessions_v2 as
 select id, parent_id, directory, time_updated, json_extract(model, '$.id') as model,
   'current' as storage from session_v2;

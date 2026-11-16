@@ -2,10 +2,10 @@ import { div, svg } from "gpui-kit";
 import { HoverCard, h_flex } from "gpui-base";
 import { DIMMED, divider, levelColor, limitNumberColor, modIcon, providerIcon, sessionNumberColor, usageBar } from "./kit.js";
 import { DENSITY } from "../lib/view.js";
+import { PANEL_CLOSE_DELAY_MS } from "../lib/mod.js";
 
 const BAR_W = 30;
 const PANEL_OPEN_DELAY_MS = 350;
-export const PANEL_CLOSE_DELAY_MS = 300;
 
 const label = (text, t) => div().text_size(10.5).text_color(t.dim).child(text);
 

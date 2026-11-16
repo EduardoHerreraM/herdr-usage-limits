@@ -62,6 +62,12 @@ test('ui draws with gpui but does not call the host', async () => {
   assert.deepEqual((await rulesFor(UI, 'import "gpui-kit";\nimport "../lib/format.js";\n')), []);
 });
 
+test('io and actions do not depend on drawing', async () => {
+  assert.ok((await rulesFor('mods/usage-limits/io/probe.js', 'import "../ui/kit.js";\n')).includes('no-restricted-imports'));
+  assert.ok((await rulesFor('mods/usage-limits/actions.js', 'import "./ui/bar.js";\n')).includes('no-restricted-imports'));
+  assert.deepEqual(await rulesFor('mods/usage-limits/io/probe.js', 'import "herdr";\nimport "../lib/mod.js";\n'), []);
+});
+
 test('functions stay short and simple', async () => {
   const long = `export function f(a) {\n${Array.from({ length: 61 }, (_, i) => `  a.push(${i});`).join('\n')}\n}\n`;
   assert.ok((await rulesFor(LIB, long)).includes('max-lines-per-function'));

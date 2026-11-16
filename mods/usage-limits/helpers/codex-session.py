@@ -28,8 +28,7 @@ def command(*args):
         return b""
 
 
-def names(output):
-    # lsof under the C locale escapes non-ASCII bytes and literal backslashes.
+def paths_lsof_printed_in_c_locale(output):
     for line in output.splitlines():
         if not line.startswith(b"n"):
             continue
@@ -67,7 +66,7 @@ def is_subagent(db, thread_id, path=None):
             try:
                 source = json.loads(source)
             except (ValueError, TypeError):
-                pass  # top-level sources such as cli and vscode are plain strings
+                pass
     if source is None and path is not None:
         try:
             with path.open(encoding="utf-8") as file:
@@ -82,10 +81,9 @@ def is_subagent(db, thread_id, path=None):
 
 
 def locate(pid, db):
-    # Embedded servers live in the TUI itself; older versions used a child server.
-    children = command("pgrep", "-P", pid).decode().split()
-    for owner in [pid, *filter(str.isdigit, children)]:
-        paths = list(names(command("lsof", "-nP", "-Fn", "-p", owner)))
+    child_servers_of_older_versions = command("pgrep", "-P", pid).decode().split()
+    for owner in [pid, *filter(str.isdigit, child_servers_of_older_versions)]:
+        paths = list(paths_lsof_printed_in_c_locale(command("lsof", "-nP", "-Fn", "-p", owner)))
         files = [p for p in paths if p.name.startswith("rollout-") and p.suffix == ".jsonl" and "sessions" in p.parts and p.is_file()]
         files = [p for p in files if not is_subagent(db, p.stem[-36:], p)]
         locks = {p.stem for p in paths if p.parent.name == "thread-writer-locks" and THREAD_ID.fullmatch(p.stem)
@@ -95,10 +93,9 @@ def locate(pid, db):
             file = lookup(db, thread_id)
             if file:
                 return file
-            # The SQLite row can lag behind creation of the rollout.
-            matching = [p for p in paths if p.name.endswith(f"-{thread_id}.jsonl") and p.is_file()]
-            if len(matching) == 1:
-                return matching[0]
+            rollout_written_before_its_sqlite_row = [p for p in paths if p.name.endswith(f"-{thread_id}.jsonl") and p.is_file()]
+            if len(rollout_written_before_its_sqlite_row) == 1:
+                return rollout_written_before_its_sqlite_row[0]
             raise SessionPending
         if len(locks) > 1:
             return None
@@ -115,13 +112,13 @@ def read_usage(path):
             try:
                 record = json.loads(line)
             except (ValueError, UnicodeError):
-                continue  # includes a last line still being written
+                continue
             if not isinstance(record, dict):
                 continue
             kind = record.get("type")
             if kind == "compacted":
                 compactions += 1
-                tokens = 0  # old context no longer describes this conversation
+                tokens = 0
             payload = record.get("payload")
             if kind != "event_msg" or not isinstance(payload, dict):
                 continue
@@ -149,7 +146,6 @@ def read_usage(path):
                     window = w if type(w) is int and w > 0 else 0
     if not tokens:
         return 1
-    # Some legacy logs also emit context_compacted for the same canonical record.
     print(f"tokens={tokens} window={window} calls={calls} compactions={compactions or legacy_compactions}")
     return 0
 
@@ -181,7 +177,7 @@ def main():
             try:
                 cwd = os.readlink(f"/proc/{pid}/cwd")
             except OSError:
-                cwd = next((str(p) for p in names(command("lsof", "-w", "-a", "-d", "cwd", "-p", pid, "-Fn"))), "")
+                cwd = next((str(p) for p in paths_lsof_printed_in_c_locale(command("lsof", "-w", "-a", "-d", "cwd", "-p", pid, "-Fn"))), "")
         if not identity or not cwd or db is None:
             return 1
         choices = []

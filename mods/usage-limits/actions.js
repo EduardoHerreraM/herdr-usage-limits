@@ -1,5 +1,5 @@
 import { setShared, shared } from "herdr";
-import { PANEL_CLOSE_DELAY_MS } from "./ui/bar.js";
+import { PANEL_CLOSE_DELAY_MS } from "./lib/mod.js";
 import { KEY_BINDINGS } from "./lib/session-binding.js";
 import { closedSinceLeft, hoveredAfter, panelOnEnter } from "./lib/view.js";
 import { spendBarOn } from "./lib/settings.js";

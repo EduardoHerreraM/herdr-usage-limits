@@ -26,6 +26,7 @@ function langOf(root, path) {
   if (path.endsWith('.sh')) return 'shell';
   if (path.endsWith('.py')) return 'python';
   if (path.endsWith('.sql')) return 'sql';
+  if (path.endsWith('.awk')) return 'awk';
   const extensionless = !/\.[^/]+$/.test(path);
   return extensionless && SHEBANG_SH.test(firstLine(root, path)) ? 'shell' : null;
 }

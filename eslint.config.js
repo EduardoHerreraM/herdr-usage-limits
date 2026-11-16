@@ -9,6 +9,7 @@ const TESTS = ['test/**', '**/test/**'];
 const NODE = ['tools/**', 'eslint.config.js', ...TESTS];
 const HOST = ['herdr', 'gpui-kit', 'gpui-base'];
 const MAX_VIEW_METHODS = 12;
+const MAIN_FROM_A_FOLDER = '../main.js';
 
 const HOST_GLOBALS = { console: 'readonly', process: 'readonly', URL: 'readonly' };
 
@@ -94,6 +95,8 @@ export default [
       'no-restricted-syntax': ['error', THIN_VIEW],
     },
   },
-  { files: [`${MOD}/lib/**`, `${MOD}/providers/**`], rules: layer([...HOST, '../main.js', '../ui/*'], 'lib and providers stay pure: no host, no ui, no main') },
-  { files: [`${MOD}/ui/**`], rules: layer(['herdr', '../main.js'], 'ui only draws: it gets data and actions, it does not call the host') },
+  { files: [`${MOD}/lib/**`, `${MOD}/providers/**`], rules: layer([...HOST, MAIN_FROM_A_FOLDER, '../ui/*'], 'lib and providers stay pure: no host, no ui, no main') },
+  { files: [`${MOD}/ui/**`], rules: layer(['herdr', MAIN_FROM_A_FOLDER, '../io/*', '../actions.js'], 'ui only draws: it gets data and actions, it does not call the host') },
+  { files: [`${MOD}/io/**`], rules: layer(['gpui-kit', 'gpui-base', '../ui/*', MAIN_FROM_A_FOLDER, '../actions.js'], 'io runs helpers: no drawing, no view') },
+  { files: [`${MOD}/actions.js`], rules: layer(['gpui-kit', 'gpui-base', './ui/*', './main.js'], 'actions change state: no drawing') },
 ];
