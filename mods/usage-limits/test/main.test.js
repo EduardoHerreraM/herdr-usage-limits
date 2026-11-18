@@ -196,3 +196,13 @@ test("main.js draws and reacts as recorded in fixtures/main-snapshot.json", asyn
   }
   assert.deepEqual(Object.keys(now), Object.keys(before));
 });
+
+test("props.border false drops the line above the bar, for a layout whose status row is drawn without lines; by default the line stays", async () => {
+  const lined = (tree) => tree.style.some(([name]) => name === "border_t");
+  for (const [props, want] of [[null, true], [{ border: true }, true], [{ border: false }, false]]) {
+    const s = session({ helpers: ALL_OK, props });
+    s.start();
+    await s.frame("drawn");
+    assert.equal(lined(s.frames[0].tree), want, JSON.stringify(props));
+  }
+});

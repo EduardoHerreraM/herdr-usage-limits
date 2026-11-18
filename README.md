@@ -163,6 +163,8 @@ this row:
 ```
 
 Give the block more weight if you want the bars to stay when a window gets tight.
+If your status row is drawn without lines, `"props": { "border": false }` in the
+`usage-limits` content drops the line above the bar.
 
 ## What it runs
 

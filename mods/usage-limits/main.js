@@ -138,7 +138,7 @@ export default class UsageLimits extends View {
     const numbers = sessionOnBar(this.session?.data, prefs);
     const room = this.width ? this.width - BAR_PADDING_W - sessionNumbersWidth(numbers) : Infinity;
     return statusBar({
-      model, numbers, density: chooseDensity(model, room, prefs.showBars),
+      model, numbers, density: chooseDensity(model, room, prefs.showBars), border: props()?.border,
       panel: this.drawPanel(t, prefs), onResize: this.act.resize, onHover: this.act.hover,
     }, t);
   }

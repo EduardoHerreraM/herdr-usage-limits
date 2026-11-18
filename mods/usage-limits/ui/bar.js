@@ -52,7 +52,7 @@ function limitsTrigger({ model, numbers, density, onHover }, t) {
 
 export function statusBar(bar, t) {
   return h_flex().id("root").size_full().px(12).items_center().justify_end().overflow_hidden()
-    .bg(t.chrome).border_t(1).border_color(t.border).text_size(11.8).text_color(t.muted)
+    .bg(t.chrome).when(bar.border !== false, (e) => e.border_t(1).border_color(t.border)).text_size(11.8).text_color(t.muted)
     .on_size_change(bar.onResize)
     .child(HoverCard.new("ul-panel").anchor("bottom_right").open_delay(PANEL_OPEN_DELAY_MS).close_delay(PANEL_CLOSE_DELAY_MS)
       .trigger(limitsTrigger(bar, t))
